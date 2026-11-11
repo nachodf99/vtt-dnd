@@ -58,23 +58,30 @@ create policy maps_update on public.maps for update to authenticated
 create policy maps_delete on public.maps for delete to authenticated
   using (data->>'ownerId' = auth.uid()::text);
 
+-- helper: ¿es el usuario actual el DM de la partida gid?
+create or replace function public.is_game_dm(gid text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.games g where g.id = gid and g.data->>'dmId' = auth.uid()::text);
+$$;
+revoke all on function public.is_game_dm(text) from public;
+grant execute on function public.is_game_dm(text) to authenticated;
+
 -- tokens: todos leen; solo el DM de la partida del token escribe
 create policy tokens_select on public.tokens for select using (true);
 create policy tokens_insert on public.tokens for insert to authenticated
-  with check (exists (select 1 from public.games g where g.id = data->>'gameId' and g.data->>'dmId' = auth.uid()::text));
+  with check (public.is_game_dm(tokens.data->>'gameId'));
 create policy tokens_update on public.tokens for update to authenticated
-  using (exists (select 1 from public.games g where g.id = data->>'gameId' and g.data->>'dmId' = auth.uid()::text))
-  with check (exists (select 1 from public.games g where g.id = data->>'gameId' and g.data->>'dmId' = auth.uid()::text));
+  using (public.is_game_dm(tokens.data->>'gameId'))
+  with check (public.is_game_dm(tokens.data->>'gameId'));
 create policy tokens_delete on public.tokens for delete to authenticated
-  using (exists (select 1 from public.games g where g.id = data->>'gameId' and g.data->>'dmId' = auth.uid()::text));
+  using (public.is_game_dm(tokens.data->>'gameId'));
 
 -- rolls: todos leen; cada cual publica sus tiradas/mensajes; borra el autor o el DM de la partida
 create policy rolls_select on public.rolls for select using (true);
 create policy rolls_insert on public.rolls for insert to authenticated
-  with check (data->>'uid' = auth.uid()::text);
+  with check (rolls.data->>'uid' = auth.uid()::text);
 create policy rolls_delete on public.rolls for delete to authenticated
-  using (data->>'uid' = auth.uid()::text
-         or exists (select 1 from public.games g where g.id = data->>'gameId' and g.data->>'dmId' = auth.uid()::text));
+  using (rolls.data->>'uid' = auth.uid()::text or public.is_game_dm(rolls.data->>'gameId'));
 
 -- Realtime: publicar cambios de las 4 tablas
 do $$ declare t text;
