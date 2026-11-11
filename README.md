@@ -78,3 +78,5 @@ api/config.js              ← config por entorno (función Vercel)
 supabase/schema.sql        ← tablas + RLS + realtime + storage (ejecutar en cada proyecto)
 config.local.example.js    ← plantilla para desarrollo local
 ```
+
+_Rama develop → entorno de preproducción (BD vtt-dev)._
