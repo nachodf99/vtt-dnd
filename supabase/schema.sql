@@ -109,3 +109,38 @@ end $$;
 
 -- Recordatorio (no es SQL): activa "Anonymous sign-ins" en
 -- Authentication → Sign In / Up → Anonymous, en cada proyecto.
+
+-- ============================================================
+-- Asignación de personajes: el jugador reclama/suelta su PJ
+-- ============================================================
+create or replace function public.claim_token(tid text, pname text) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare gid text; ok boolean;
+begin
+  if auth.uid() is null then return false; end if;
+  select data->>'gameId' into gid from public.tokens
+   where id = tid and data->>'type' = 'pc' and coalesce(data->>'ownerId','') = '';
+  if gid is null then return false; end if;
+  update public.tokens set data = (data - 'ownerId' - 'ownerName')
+   where data->>'gameId' = gid and data->>'ownerId' = auth.uid()::text;
+  update public.tokens
+     set data = data || jsonb_build_object('ownerId', auth.uid()::text, 'ownerName', left(coalesce(pname,'Jugador'), 24))
+   where id = tid and coalesce(data->>'ownerId','') = '';
+  get diagnostics ok = row_count;
+  return ok;
+end $$;
+
+create or replace function public.release_token(tid text) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  update public.tokens set data = (data - 'ownerId' - 'ownerName')
+   where id = tid and data->>'ownerId' = auth.uid()::text;
+  get diagnostics n = row_count;
+  return n > 0;
+end $$;
+
+revoke all on function public.claim_token(text, text) from public;
+revoke all on function public.release_token(text) from public;
+grant execute on function public.claim_token(text, text) to authenticated;
+grant execute on function public.release_token(text) to authenticated;

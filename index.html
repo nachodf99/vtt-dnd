@@ -186,6 +186,10 @@ select.cond-add{padding:2px 2px; font-size:11px; width:52px}
         <button id="btnFog" title="Activar/desactivar niebla (DM)" style="display:none">🌫</button>
       </div>
       <div id="distLabel"></div>
+      <div id="pickHint" style="display:none; position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); text-align:center; background:rgba(20,16,14,.92); border:1px solid var(--accent); border-radius:14px; padding:18px 22px; z-index:12; max-width:90%">
+        <div style="font-family:Cinzel,serif; font-size:20px; color:var(--accent)">Elige tu personaje</div>
+        <div class="muted" style="margin-top:6px">En el panel ♟ Tokens, pulsa «Este es mi personaje».<br>Verás lo que ve tu PJ.</div>
+      </div>
       <div id="emptyState">
         <div style="font-size:52px">🗺️</div>
         <div class="big">No hay mapa activo</div>
@@ -825,8 +829,18 @@ function playerFogActive(){
   if (S.isDM && !S.viewAsPlayer) return false;
   return true;
 }
+function myToken(mapId){
+  return gameTokens(mapId).find(t => t.type === 'pc' && t.ownerId === S.uid) || null;
+}
 function visionSources(m){
-  return gameTokens(m.id).filter(t => !t.hidden && t.type === 'pc');
+  const pcs = gameTokens(m.id).filter(t => !t.hidden && t.type === 'pc');
+  // Jugador con personaje asignado: ve solo desde su PJ (salvo que el DM active visión compartida)
+  if (!S.isDM && m.sharedVision !== true){
+    const mine = pcs.find(t => t.ownerId === S.uid);
+    if (mine) return [mine];
+    return []; // sin personaje elegido: todo a oscuras
+  }
+  return pcs;
 }
 function getExplored(m){
   const key = (S.gameId || 'x') + ':' + m.id;
@@ -921,7 +935,7 @@ function draw(){
   ctx.clearRect(0, 0, cv.width, cv.height);
   ctx.fillStyle = '#0b0908'; ctx.fillRect(0, 0, cv.width, cv.height);
   const m = activeMap();
-  if (!m || !S.gameId) return;
+  if (!m || !S.gameId){ const ph = $('#pickHint'); if (ph) ph.style.display = 'none'; return; }
   if (S.fogDirty) recomputeFog();
   ctx.save();
   ctx.translate(S.cam.x, S.cam.y); ctx.scale(S.cam.s, S.cam.s);
@@ -938,6 +952,8 @@ function draw(){
     ctx.stroke();
   }
   const fogOn = playerFogActive();
+  const needPick = !S.isDM && fogOn && m.sharedVision !== true && !myToken(m.id);
+  const ph = $('#pickHint'); if (ph) ph.style.display = needPick ? '' : 'none';
   const toks = gameTokens(m.id);
   const seeAll = S.isDM && !S.viewAsPlayer;
   toks.filter(t => t.type !== 'pc').forEach(t => {
@@ -1240,6 +1256,7 @@ function renderMapsPanel(p){
         '<button class="small cal" data-x="-' + (m.grid || 70) + '" data-y="0">←1 casilla</button><button class="small cal" data-x="' + (m.grid || 70) + '" data-y="0">→1 casilla</button></div>' +
         '<div class="row" style="margin-top:4px"><button class="small cal" data-x="0" data-y="-' + (m.grid || 70) + '">↑1 casilla</button><button class="small cal" data-x="0" data-y="' + (m.grid || 70) + '">↓1 casilla</button><button class="small" id="calReset">Reiniciar</button><span class="mini">off: ' + (m.wallOffX || 0) + ',' + (m.wallOffY || 0) + '</span></div>';
     }
+    html += '<div class="row between" style="margin-top:6px"><label>Visión compartida (todos ven lo de todos los PJs)</label><button class="small" id="setShared">' + (m.sharedVision === true ? 'Sí' : 'No') + '</button></div>';
     html += '<div class="row between" style="margin-top:6px"><label>Recordar zonas exploradas (penumbra)</label><button class="small" id="setRemember">' + (m.rememberExplored === true ? 'Sí' : 'No') + '</button></div>' +
       '<div class="row" style="margin-top:8px"><button class="small" id="resetExplored">🌫 Reiniciar zonas exploradas</button></div></div>';
   }
@@ -1266,7 +1283,8 @@ function renderMapsPanel(p){
       DB.doc('maps/' + m.id).update({ wallOffX: (m.wallOffX || 0) + parseInt(b.dataset.x), wallOffY: (m.wallOffY || 0) + parseInt(b.dataset.y) }).catch(() => {});
     });
     const cr = $('#calReset'); if (cr) cr.onclick = () => DB.doc('maps/' + m.id).update({ wallOffX: 0, wallOffY: 0 }).catch(() => {});
-    $('#setRemember').onclick = () => DB.doc('maps/' + m.id).update({ rememberExplored: m.rememberExplored !== true }).catch(() => {});
+    $('#setShared').onclick = () => DB.doc('maps/' + m.id).update({ sharedVision: m.sharedVision !== true }).catch(() => {});
+    $('#setRemember').onclick =() => DB.doc('maps/' + m.id).update({ rememberExplored: m.rememberExplored !== true }).catch(() => {});
     $('#resetExplored').onclick = () => {
       delete S.explored[(S.gameId || 'x') + ':' + m.id];
       S.fogDirty = true; needsDraw(); toast('Zonas exploradas reiniciadas');
@@ -1282,6 +1300,22 @@ function renderTokensPanel(p){
   if (!m){ p.innerHTML = html + '<div class="muted" style="margin-top:10px">Activa un mapa para colocar tokens.</div>'; bindTokenPanel(); return; }
   const toks = gameTokens(m.id);
   const seeAll = S.isDM;
+  if (!S.isDM){
+    const mine = myToken(m.id);
+    const free = toks.filter(t => t.type === 'pc' && !t.hidden && !t.ownerId);
+    html += '<div class="card" style="border-color:var(--accent)">';
+    if (mine){
+      html += '<div class="section-title" style="margin-top:0">Tu personaje</div><div class="row between"><b>' + esc(mine.name) + '</b><button class="small" id="btnRelease">Cambiar</button></div>' +
+        '<div class="mini" style="margin-top:4px">Ves lo que ve tu personaje. El DM mueve los tokens.</div>';
+    } else {
+      html += '<div class="section-title" style="margin-top:0">Elige tu personaje</div>';
+      if (!free.length) html += '<div class="muted">No hay personajes libres. Pide al DM que cree tu PJ (tipo «Personaje»).</div>';
+      free.forEach(t => {
+        html += '<div class="row between" style="margin-bottom:6px"><b>' + esc(t.name) + '</b><button class="small primary t-claim" data-tid="' + t.id + '">Este es mi personaje</button></div>';
+      });
+    }
+    html += '</div>';
+  }
   const groups = [['Personajes', toks.filter(t => t.type === 'pc')], ['PNJ', toks.filter(t => t.type === 'npc')], ['Monstruos', toks.filter(t => t.type === 'monster')]];
   groups.forEach(([title, list]) => {
     if (!seeAll){
@@ -1298,10 +1332,12 @@ function renderTokensPanel(p){
       html += '<div class="card" data-tid="' + t.id + '"><div class="row between">' +
         '<div class="row grow" style="cursor:pointer">' + dot +
         '<div class="grow"><b>' + esc(t.name) + '</b>' + (t.hidden ? ' <span class="mini">(oculto)</span>' : '') +
-        '<div class="mini">PV ' + (t.hp || 0) + '/' + (t.hpMax || 0) + ' · ' + (t.size || 1) + '×' + (t.size || 1) + '</div></div></div>' +
+        '<div class="mini">PV ' + (t.hp || 0) + '/' + (t.hpMax || 0) + ' · ' + (t.size || 1) + '×' + (t.size || 1) +
+        (t.type === 'pc' ? (t.ownerId ? ' · 🎮 ' + esc(t.ownerId === S.uid ? 'tú' : (t.ownerName || 'Jugador')) : ' · <i>libre</i>') : '') + '</div></div></div>' +
         '<div class="row">' +
         (S.isDM ? '<button class="small t-hp" data-d="-1" data-tid="' + t.id + '">−</button><button class="small t-hp" data-d="1" data-tid="' + t.id + '">＋</button>' +
-          '<button class="small t-hide" data-tid="' + t.id + '">' + (t.hidden ? '👁' : '🙈') + '</button><button class="small t-edit" data-tid="' + t.id + '">✎</button>' : '') +
+          '<button class="small t-hide" data-tid="' + t.id + '">' + (t.hidden ? '👁' : '🙈') + '</button><button class="small t-edit" data-tid="' + t.id + '">✎</button>' +
+          (t.ownerId ? '<button class="small t-unassign" data-tid="' + t.id + '" title="Liberar personaje">⛓</button>' : '') : '') +
         '</div></div>' +
         (t.hpMax > 0 ? '<div class="hpbar"><i style="width:' + clamp((t.hp || 0) / t.hpMax * 100, 0, 100) + '%"></i></div>' : '') +
         '</div>';
@@ -1314,6 +1350,31 @@ function renderTokensPanel(p){
 }
 function bindTokenPanel(){
   const bn = $('#btnNewToken'); if (bn) bn.onclick = () => openTokenModal(null);
+  $$('.t-claim').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    if (S.localMode){
+      const t = S.tokens[b.dataset.tid];
+      await DB.doc('tokens/' + t.id).update({ ownerId: S.uid, ownerName: myName() });
+    } else {
+      const { data, error } = await SB.rpc('claim_token', { tid: b.dataset.tid, pname: myName() });
+      if (error || !data){ toast(error ? error.message : 'Ese personaje ya lo ha cogido otro jugador', true); b.disabled = false; return; }
+    }
+    S.fogDirty = true;
+    toast('¡Ahora eres ' + ((S.tokens[b.dataset.tid] || {}).name || 'tu personaje') + '!');
+    const t = S.tokens[b.dataset.tid];
+    if (t){ const r = cv.getBoundingClientRect(); S.cam.x = r.width / 2 - t.x * S.cam.s; S.cam.y = r.height / 2 - t.y * S.cam.s; needsDraw(); }
+  });
+  const br = $('#btnRelease'); if (br) br.onclick = async () => {
+    const m = activeMap(); const mine = m && myToken(m.id); if (!mine) return;
+    if (S.localMode) await DB.doc('tokens/' + mine.id).update({ ownerId: null, ownerName: null });
+    else { const { error } = await SB.rpc('release_token', { tid: mine.id }); if (error){ toast(error.message, true); return; } }
+    S.fogDirty = true;
+  };
+  $$('.t-unassign').forEach(b => b.onclick = () => {
+    const t = S.tokens[b.dataset.tid]; if (!t) return;
+    const nt = Object.assign({}, t); delete nt.id; delete nt.ownerId; delete nt.ownerName;
+    DB.doc('tokens/' + t.id).set(nt).catch(e => toast(e.message || e, true));
+  });
   $$('.t-edit').forEach(b => b.onclick = () => openTokenModal(b.dataset.tid));
   $$('.t-hide').forEach(b => b.onclick = () => {
     const t = S.tokens[b.dataset.tid];
@@ -1389,6 +1450,7 @@ $('#tkSave').onclick = async () => {
       imgUrl,
       x: center.x, y: center.y, createdAt: old ? (old.createdAt || Date.now()) : Date.now()
     };
+    if (old && old.ownerId && t.type === 'pc'){ t.ownerId = old.ownerId; t.ownerName = old.ownerName || ''; }
     await DB.doc('tokens/' + id).set(t);
     $('#tokenModal').classList.remove('open'); S.fogDirty = true;
   } catch(e){
@@ -1405,7 +1467,7 @@ $('#tkDup').onclick = () => {
   const t = S.tokens[S.editingToken]; if (!t) return;
   const m = activeMap(); const g = gridOf(m);
   const copy = Object.assign({}, t, { x: t.x + g, y: t.y, name: nextName(t.name) });
-  delete copy.id;
+  delete copy.id; delete copy.ownerId; delete copy.ownerName;
   DB.doc('tokens/' + uuid()).set(copy).catch(() => {});
   toast('Token duplicado');
 };
