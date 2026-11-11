@@ -1,0 +1,1765 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mesa de Rol — VTT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#14100e; --panel:#1e1813; --panel2:#282019; --line:#3a2f24;
+  --ink:#e8ddc8; --ink-dim:#a89878; --accent:#c9a227; --accent2:#8c2b2b;
+  --ok:#4e8c4a; --danger:#b4422e; --blue:#3d6b8f;
+  --rad:10px;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{height:100%}
+body{background:var(--bg); color:var(--ink); font-family:Inter,system-ui,sans-serif; font-size:14px; overflow:hidden}
+button{font-family:inherit; cursor:pointer; border:1px solid var(--line); background:var(--panel2); color:var(--ink); border-radius:8px; padding:7px 12px; font-size:13px; font-weight:500}
+button:hover{border-color:var(--accent); color:#fff}
+button.primary{background:linear-gradient(180deg,#8a6d1d,#6e5512); border-color:#a8861f; color:#fff}
+button.danger{background:#4a1f16; border-color:#7a3324}
+button.small{padding:3px 8px; font-size:12px}
+button:disabled{opacity:.45; cursor:not-allowed}
+input,select,textarea{background:#141009; border:1px solid var(--line); color:var(--ink); border-radius:7px; padding:7px 9px; font-size:13px; font-family:inherit}
+input:focus,select:focus{outline:none; border-color:var(--accent)}
+input[type=number]{width:70px}
+input[type=color]{padding:2px; width:40px; height:32px}
+label{font-size:12px; color:var(--ink-dim)}
+h1,h2,h3{font-family:Cinzel,serif}
+::-webkit-scrollbar{width:9px} ::-webkit-scrollbar-thumb{background:#3a2f24; border-radius:5px}
+
+#app{display:flex; flex-direction:column; height:100%}
+header{display:flex; align-items:center; gap:10px; padding:8px 14px; background:var(--panel); border-bottom:2px solid var(--line); flex-wrap:wrap; z-index:30}
+header .logo{font-family:Cinzel,serif; font-weight:800; font-size:18px; color:var(--accent); letter-spacing:1px; white-space:nowrap}
+header .logo span{color:var(--ink)}
+.badge{font-size:11px; padding:3px 9px; border-radius:20px; border:1px solid var(--line); color:var(--ink-dim)}
+.badge.dm{border-color:var(--accent); color:var(--accent)}
+.badge.game{border-color:var(--blue); color:#9cc4e4; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.badge.env{border-color:#8f2e6b; color:#e08fc4}
+.spacer{flex:1}
+#peersBar{display:flex; gap:4px}
+.peer{width:28px;height:28px;border-radius:50%;background:var(--blue);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:2px solid var(--panel);color:#fff}
+#roundBadge{display:none; background:#2a1d10; border:1px solid var(--accent); color:var(--accent); padding:4px 12px; border-radius:8px; font-weight:600; font-size:13px}
+
+main{display:flex; flex:1; min-height:0; position:relative}
+#sidebar{width:330px; min-width:330px; background:var(--panel); border-right:2px solid var(--line); display:flex; flex-direction:column; z-index:20}
+#tabs{display:flex; border-bottom:1px solid var(--line)}
+#tabs button{flex:1; border:none; border-radius:0; background:transparent; padding:10px 4px; font-size:12.5px; color:var(--ink-dim); border-bottom:2px solid transparent}
+#tabs button.active{color:var(--accent); border-bottom-color:var(--accent); background:rgba(201,162,39,.05)}
+#panel{flex:1; overflow-y:auto; padding:12px}
+.section-title{font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:var(--ink-dim); margin:14px 0 8px; font-weight:600}
+.section-title:first-child{margin-top:0}
+
+#stage{flex:1; position:relative; min-width:0; background:#0b0908}
+#cv{position:absolute; inset:0; width:100%; height:100%; touch-action:none; cursor:grab}
+#cv.dragging{cursor:grabbing}
+#stageTools{position:absolute; top:10px; right:10px; display:flex; flex-direction:column; gap:6px; z-index:10}
+#stageTools button{width:38px; height:38px; padding:0; font-size:17px; background:rgba(30,24,19,.92)}
+#distLabel{position:absolute; pointer-events:none; background:rgba(0,0,0,.8); color:var(--accent); padding:3px 8px; border-radius:6px; font-size:13px; font-weight:700; display:none; z-index:11}
+#emptyState{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; color:var(--ink-dim); text-align:center; padding:20px}
+#emptyState .big{font-family:Cinzel,serif; font-size:26px; color:var(--ink)}
+
+.card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--rad); padding:10px; margin-bottom:8px}
+.row{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.row.between{justify-content:space-between}
+.grow{flex:1}
+.muted{color:var(--ink-dim); font-size:12px}
+.mini{font-size:11px; color:var(--ink-dim)}
+
+.tok-dot{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:#fff; flex-shrink:0; border:2px solid rgba(255,255,255,.35); background-size:cover; background-position:center; overflow:hidden}
+.hpbar{height:6px; background:#000; border-radius:4px; overflow:hidden; margin-top:5px}
+.hpbar i{display:block; height:100%; background:linear-gradient(90deg,#b4422e,#4e8c4a)}
+
+.init-entry{display:flex; align-items:center; gap:7px; padding:7px 8px; border-radius:8px; border:1px solid var(--line); margin-bottom:6px; background:var(--panel2)}
+.init-entry.active-turn{border-color:var(--accent); background:#2a2112; box-shadow:0 0 0 1px var(--accent)}
+.init-entry input.init-val{width:44px; text-align:center; font-weight:700}
+.conds{display:flex; gap:3px; flex-wrap:wrap; margin-top:4px}
+.cond{font-size:10px; background:#3b2a42; border:1px solid #5d4370; color:#d8c4ea; padding:1px 6px; border-radius:10px; cursor:pointer}
+select.cond-add{padding:2px 2px; font-size:11px; width:52px}
+
+#log{display:flex; flex-direction:column; gap:6px}
+.roll-entry{background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:7px 9px}
+.roll-entry .who{font-weight:600; color:var(--accent); font-size:12px}
+.roll-entry .total{float:right; font-size:18px; font-weight:800; color:#fff}
+.roll-entry.priv{border-style:dashed; opacity:.85}
+.roll-entry .detail{font-size:12px; color:var(--ink-dim); margin-top:2px}
+.dice-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:8px}
+.dice-grid button{font-weight:700}
+
+.map-item{display:flex; align-items:center; gap:8px; padding:8px; border:1px solid var(--line); border-radius:8px; margin-bottom:6px; background:var(--panel2); cursor:pointer}
+.map-item.active{border-color:var(--accent)}
+.map-item .thumb{width:46px; height:34px; border-radius:5px; background:#000 center/cover; flex-shrink:0; border:1px solid var(--line)}
+
+.game-item{border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:8px; background:var(--panel2)}
+.game-item b{font-size:15px}
+
+.modal-back{position:fixed; inset:0; background:rgba(0,0,0,.72); display:none; align-items:center; justify-content:center; z-index:100; padding:16px}
+.modal-back.open{display:flex}
+.modal{background:var(--panel); border:1px solid var(--accent); border-radius:14px; padding:18px; width:100%; max-width:480px; max-height:92vh; overflow-y:auto}
+.modal h2{color:var(--accent); font-size:18px; margin-bottom:12px}
+.field{margin-bottom:10px; display:flex; flex-direction:column; gap:4px}
+.drop{border:2px dashed var(--line); border-radius:12px; padding:26px 14px; text-align:center; color:var(--ink-dim); cursor:pointer; margin-bottom:10px}
+.drop.over{border-color:var(--accent); color:var(--accent)}
+#tkImgPrev{width:46px;height:46px;border-radius:50%;object-fit:cover;border:2px solid var(--line); display:none}
+
+#toasts{position:fixed; bottom:14px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:7px; z-index:200; align-items:center}
+.toast{background:#241c14; border:1px solid var(--accent); color:var(--ink); padding:9px 16px; border-radius:10px; font-size:13px; box-shadow:0 4px 18px rgba(0,0,0,.5); max-width:90vw}
+.toast.err{border-color:var(--danger)}
+
+#loading{position:fixed; inset:0; background:var(--bg); display:flex; flex-direction:column; gap:14px; align-items:center; justify-content:center; z-index:300}
+#loading .d20{font-size:48px; animation:spin 2.4s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#banner{display:none; background:#3d2a10; border-bottom:1px solid var(--accent); color:var(--accent); padding:7px 14px; font-size:13px; text-align:center}
+
+#lobby{position:fixed; inset:0; background:radial-gradient(ellipse at top,#241c12,#120e0a); z-index:90; display:none; align-items:center; justify-content:center; padding:16px; overflow-y:auto}
+#lobby.open{display:flex}
+#lobbyBox{width:100%; max-width:520px}
+#lobbyBox h1{color:var(--accent); font-size:28px; text-align:center; margin-bottom:4px}
+#lobbyBox .sub{text-align:center; color:var(--ink-dim); margin-bottom:18px}
+
+#sidebarToggle{display:none; position:absolute; top:10px; left:10px; z-index:25; width:38px;height:38px;padding:0;font-size:17px; background:rgba(30,24,19,.92)}
+@media(max-width:860px){
+  #sidebar{position:absolute; left:0; top:0; bottom:0; transform:translateX(-100%); transition:transform .2s; box-shadow:4px 0 20px rgba(0,0,0,.5)}
+  #sidebar.open{transform:none}
+  #sidebarToggle{display:block}
+}
+</style>
+</head>
+<body>
+<div id="loading"><div class="d20">⚀</div><div style="font-family:Cinzel,serif;font-size:20px">Preparando la mesa…</div><div class="muted" id="loadingMsg"></div></div>
+
+<!-- Lobby de partidas -->
+<div id="lobby">
+  <div id="lobbyBox">
+    <h1>⚔ Mesa de Rol</h1>
+    <div class="sub" id="lobbySub">Elige una partida para entrar</div>
+    <div class="card">
+      <div class="field"><label>Tu nombre (lo verá el grupo)</label><input id="myName" placeholder="Tu nombre…" maxlength="24"></div>
+    </div>
+    <div id="lobbyCreate" class="card">
+      <div class="section-title">Crear partida (serás su DM)</div>
+      <div class="row">
+        <input id="newGameName" class="grow" placeholder="Nombre de la partida…">
+        <label class="row" style="gap:4px"><input type="checkbox" id="newGamePriv" checked style="width:auto"> privada</label>
+        <button class="primary" id="btnCreateGame">Crear</button>
+      </div>
+      <div class="mini" style="margin-top:5px">Las privadas piden un código a los jugadores. Compárteles la URL y el código.</div>
+    </div>
+    <div id="lobbyList"></div>
+  </div>
+</div>
+
+<div id="app">
+  <div id="banner"></div>
+  <header>
+    <div class="logo">⚔ MESA <span>DE ROL</span></div>
+    <span class="badge" id="roleBadge" style="display:none">…</span>
+    <span class="badge env" id="envBadge" style="display:none">PRE</span>
+    <span class="badge game" id="gameBadge" style="display:none"></span>
+    <span id="roundBadge"></span>
+    <div class="spacer"></div>
+    <div id="peersBar" title="Conectados ahora"></div>
+    <button id="btnViewAs" class="small" style="display:none" title="Previsualizar lo que ven los jugadores">👁 Ver como jugador</button>
+    <button id="btnLeave" class="small" style="display:none" title="Volver al lobby">⏻ Salir</button>
+  </header>
+  <main>
+    <div id="sidebar">
+      <div id="tabs">
+        <button data-tab="maps" id="tabMapsBtn">🗺 Mapas</button>
+        <button data-tab="tokens" class="active">♟ Tokens</button>
+        <button data-tab="init">⚔ Iniciativa</button>
+        <button data-tab="dice">🎲 Dados</button>
+      </div>
+      <div id="panel"></div>
+    </div>
+    <div id="stage">
+      <canvas id="cv"></canvas>
+      <button id="sidebarToggle">☰</button>
+      <div id="stageTools">
+        <button id="btnZoomIn" title="Acercar">＋</button>
+        <button id="btnZoomOut" title="Alejar">－</button>
+        <button id="btnFit" title="Ajustar mapa">⛶</button>
+        <button id="btnGrid" title="Mostrar/ocultar rejilla">▦</button>
+        <button id="btnWalls" title="Ver muros y calibrar (DM)" style="display:none">🧱</button>
+        <button id="btnFog" title="Activar/desactivar niebla (DM)" style="display:none">🌫</button>
+      </div>
+      <div id="distLabel"></div>
+      <div id="emptyState">
+        <div style="font-size:52px">🗺️</div>
+        <div class="big">No hay mapa activo</div>
+        <div id="emptyHint" class="muted"></div>
+        <button class="primary" id="emptyImportBtn" style="display:none">Importar mapa de Dungeon Alchemist</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Modal: importar mapa -->
+<div class="modal-back" id="importModal">
+  <div class="modal">
+    <h2>Importar mapa</h2>
+    <div class="drop" id="dropZone">
+      <div style="font-size:26px">📂</div>
+      <div><b>Arrastra aquí o pulsa para elegir</b></div>
+      <div class="mini" style="margin-top:6px">Selecciona <b>a la vez</b> el JSON del export de Foundry y su imagen/vídeo.<br>También vale un archivo Universal VTT (.dd2vtt / .uvtt) o una imagen suelta.</div>
+      <input type="file" id="fileInput" multiple accept=".json,.dd2vtt,.uvtt,application/json,image/*,video/*" style="display:none">
+    </div>
+    <div id="importSummary" style="display:none">
+      <div class="card" id="importInfo"></div>
+      <div class="field"><label>Nombre del mapa</label><input id="impName"></div>
+      <div class="row" id="impGridRow" style="display:none">
+        <div class="field"><label>Píxeles por casilla</label><input type="number" id="impGrid" value="70" min="10"></div>
+        <div class="field"><label>Desfase X</label><input type="number" id="impOffX" value="0"></div>
+        <div class="field"><label>Desfase Y</label><input type="number" id="impOffY" value="0"></div>
+      </div>
+      <div class="row between" style="margin-top:12px">
+        <button id="impCancel">Cancelar</button>
+        <button class="primary" id="impCreate">Crear mapa</button>
+      </div>
+      <div class="mini" id="impProgress" style="margin-top:8px"></div>
+    </div>
+    <div class="row" style="justify-content:flex-end; margin-top:6px" id="importCloseRow"><button id="impClose">Cerrar</button></div>
+  </div>
+</div>
+
+<!-- Modal: editar token -->
+<div class="modal-back" id="tokenModal">
+  <div class="modal">
+    <h2 id="tokenModalTitle">Nuevo token</h2>
+    <div class="field"><label>Nombre</label><input id="tkName" placeholder="Goblin, Thorin…"></div>
+    <div class="field"><label>Imagen (opcional, se recorta en círculo)</label>
+      <div class="row">
+        <img id="tkImgPrev" alt="">
+        <input type="file" id="tkImg" accept="image/*" class="grow">
+        <button class="small" id="tkImgClear" style="display:none">Quitar</button>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Tipo</label>
+        <select id="tkType"><option value="pc">Personaje (PJ)</option><option value="npc">PNJ aliado</option><option value="monster">Monstruo</option></select>
+      </div>
+      <div class="field"><label>Color</label><input type="color" id="tkColor" value="#8c2b2b"></div>
+      <div class="field"><label>Tamaño (casillas)</label>
+        <select id="tkSize"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field"><label>PV actuales</label><input type="number" id="tkHp" value="10"></div>
+      <div class="field"><label>PV máximos</label><input type="number" id="tkHpMax" value="10"></div>
+      <div class="field"><label>Visión (casillas, 0 = sin límite)</label><input type="number" id="tkVision" value="12" min="0"></div>
+    </div>
+    <div class="row between" style="margin-top:12px">
+      <button id="tkCancel">Cancelar</button>
+      <div class="row">
+        <button class="danger" id="tkDelete" style="display:none">Eliminar</button>
+        <button id="tkDup" style="display:none">Duplicar</button>
+        <button class="primary" id="tkSave">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/config.local.js" defer></script>
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+/* ============ utilidades ============ */
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2) + Date.now());
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(msg, err){ const t = document.createElement('div'); t.className = 'toast' + (err ? ' err' : ''); t.textContent = msg; $('#toasts').appendChild(t); setTimeout(() => t.remove(), 4200); }
+function snapDocs(snap){
+  if (!snap) return [];
+  if (Array.isArray(snap)) return snap.map(d => ({ id: d.id, ...(typeof d.data === 'function' ? (d.data() || {}) : (d.data || d)) }));
+  if (snap.docs) return snap.docs.map(d => ({ id: d.id, ...(typeof d.data === 'function' ? (d.data() || {}) : (d.data || {})) }));
+  return [];
+}
+function armConfirm(btn, fn){
+  if (btn.dataset.armed){ btn.dataset.armed = ''; fn(); return; }
+  btn.dataset.armed = '1';
+  const old = btn.textContent; btn.textContent = '¿Seguro?'; btn.classList.add('danger');
+  setTimeout(() => { if (btn.isConnected){ btn.dataset.armed = ''; btn.textContent = old; } }, 2600);
+}
+function lsGet(k){ try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch(e){ return null; } }
+function lsSet(k, v){ try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+
+/* ============ estado global ============ */
+let SB = null, DB = null, GCH = null;
+const S = {
+  uid: 'local', isDM: false, viewAsPlayer: false, localMode: false,
+  games: {}, gameId: null, lobbyManual: false,
+  maps: {}, tokens: {}, rolls: [],
+  activeMapId: null,
+  media: { mapId: null, img: null, video: null, w: 0, h: 0 },
+  cam: { x: 40, y: 40, s: 0.4 },
+  tab: 'tokens', showGrid: true, showWalls: false,
+  drag: null, pan: null, pings: [], peers: [],
+  visPolys: [], fogDirty: true, explored: {},
+  editingToken: null, pendingImport: null,
+  tkImgBlob: null, tkImgClear: false,
+};
+const EXPLORED_SCALE = 0.25;
+const CONDS = ['Agarrado','Asustado','Aturdido','Cegado','Derribado','Encantado','Ensordecido','Envenenado','Incapacitado','Inconsciente','Invisible','Paralizado','Petrificado','Apresado','Concentración'];
+const COLORS = ['#8c2b2b','#3d6b8f','#4e8c4a','#8a6d1d','#6b3f8f','#b4632e','#2e8f8a','#8f2e6b'];
+
+function myName(){ return (lsGet('vtt_name') || '').trim() || 'Aventurero'; }
+
+/* ============ shim local (sin conexión) ============ */
+function makeLocalDB(){
+  const store = {}; const subs = [];
+  function notify(){ subs.forEach(s => { try { s.fn(s.get()); } catch(e){} }); }
+  function docRef(path){
+    return {
+      set(v){ store[path] = JSON.parse(JSON.stringify(v)); notify(); return Promise.resolve(); },
+      update(v){ store[path] = Object.assign(store[path] || {}, JSON.parse(JSON.stringify(v))); notify(); return Promise.resolve(); },
+      delete(){ delete store[path]; notify(); return Promise.resolve(); },
+      get(){ const p = path; return Promise.resolve({ exists: !!store[p], data: () => store[p] }); },
+      onSnapshot(fn){ const s = { fn, get: () => ({ exists: !!store[path], data: () => store[path] }) }; subs.push(s); setTimeout(() => s.fn(s.get()), 0); return () => {}; }
+    };
+  }
+  function colRef(col){
+    const q = {
+      orderBy(){ return q; }, limit(){ return q; }, where(){ return q; },
+      doc(id){ return docRef(col + '/' + id); },
+      onSnapshot(fn){
+        const s = { fn, get: () => Object.keys(store).filter(k => k.startsWith(col + '/') && k.split('/').length === 2).map(k => ({ id: k.split('/')[1], data: () => store[k] })) };
+        subs.push(s); setTimeout(() => s.fn(s.get()), 0); return () => {};
+      }
+    };
+    return q;
+  }
+  return { doc: docRef, collection: colRef };
+}
+
+/* ============ adaptador Supabase (tablas jsonb + realtime) ============ */
+function makeSupaDB(){
+  const tables = ['games', 'maps', 'tokens', 'rolls'];
+  const cache = {}; const colSubs = {}; const docSubs = {};
+  tables.forEach(t => { cache[t] = new Map(); colSubs[t] = []; docSubs[t] = []; });
+  function notify(t){
+    const arr = [...cache[t].entries()].map(([id, data]) => ({ id, data }));
+    colSubs[t].forEach(fn => { try { fn(arr); } catch(e){} });
+    docSubs[t].forEach(l => { const d = cache[t].get(l.id); try { l.fn({ exists: d != null, data: () => d }); } catch(e){} });
+  }
+  async function loadAll(t){
+    const { data, error } = await SB.from(t).select('id,data');
+    if (!error && data){ cache[t].clear(); data.forEach(r => cache[t].set(r.id, r.data)); notify(t); }
+    else if (error) console.warn('load', t, error.message);
+  }
+  const ch = SB.channel('db-changes');
+  tables.forEach(t => {
+    ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, payload => {
+      if (payload.eventType === 'DELETE'){ if (payload.old && payload.old.id != null) cache[t].delete(payload.old.id); }
+      else if (payload.new && payload.new.id != null){ cache[t].set(payload.new.id, payload.new.data); }
+      notify(t);
+    });
+  });
+  let reloaded = false;
+  ch.subscribe(status => { if (status === 'SUBSCRIBED' && !reloaded){ reloaded = true; tables.forEach(loadAll); } });
+  tables.forEach(loadAll);
+  function split(path){ const i = path.indexOf('/'); return { t: path.slice(0, i), id: path.slice(i + 1) }; }
+  const api = {
+    doc(path){
+      const { t, id } = split(path);
+      return {
+        async set(v){
+          const { error } = await SB.from(t).upsert({ id, data: v });
+          if (error) throw new Error(error.message);
+          cache[t].set(id, v); notify(t);
+        },
+        async update(v){
+          const cur = cache[t].get(id) || {};
+          const nv = Object.assign({}, cur, v);
+          const { error } = await SB.from(t).upsert({ id, data: nv });
+          if (error) throw new Error(error.message);
+          cache[t].set(id, nv); notify(t);
+        },
+        async delete(){
+          const { error } = await SB.from(t).delete().eq('id', id);
+          if (error) throw new Error(error.message);
+          cache[t].delete(id); notify(t);
+        },
+        get(){ const d = cache[t].get(id); return Promise.resolve({ exists: d != null, data: () => d }); },
+        onSnapshot(fn){ docSubs[t].push({ id, fn }); const d = cache[t].get(id); setTimeout(() => fn({ exists: d != null, data: () => d }), 0); return () => {}; }
+      };
+    },
+    collection(t){
+      const q = {
+        orderBy(){ return q; }, limit(){ return q; }, where(){ return q; },
+        doc(id){ return api.doc(t + '/' + id); },
+        onSnapshot(fn){ colSubs[t].push(fn); setTimeout(() => notify(t), 0); return () => {}; }
+      };
+      return q;
+    }
+  };
+  return api;
+}
+async function uploadAsset(blob){
+  const ext = (blob.type && blob.type.split('/')[1]) ? blob.type.split('/')[1].replace('+xml', '') : 'bin';
+  const path = S.uid + '/' + uuid() + '.' + ext;
+  const { error } = await SB.storage.from('assets').upload(path, blob, { contentType: blob.type || undefined });
+  if (error) throw new Error(error.message);
+  const { data } = SB.storage.from('assets').getPublicUrl(path);
+  return { url: data.publicUrl };
+}
+
+/* ============ arranque ============ */
+let loadingDone = false;
+function finishLoading(){ if (!loadingDone){ loadingDone = true; $('#loading').style.display = 'none'; } }
+setTimeout(() => {
+  if (!loadingDone){
+    if (!DB){ enterLocalMode('No se pudo conectar. Modo local: los cambios no se comparten ni se guardan.'); }
+    finishLoading();
+  }
+}, 12000);
+
+function enterLocalMode(msg){
+  S.localMode = true;
+  DB = makeLocalDB();
+  const b = $('#banner'); b.style.display = 'block'; b.textContent = '⚠ ' + msg;
+  startSubscriptions(); finishLoading(); showLobby();
+  DB.doc('games/local').set({ name: 'Partida local', code: null, dmId: S.uid, activeMapId: null, combat: { active: false, round: 1, turn: 0, entries: [] }, createdAt: Date.now() });
+  joinGame('local', true);
+}
+
+async function getConfig(){
+  try {
+    const r = await fetch('/api/config');
+    if (r.ok){
+      const c = await r.json();
+      if (c && c.url && c.anon) return c;
+    }
+  } catch(e){}
+  if (window.VTT_CONFIG && window.VTT_CONFIG.url) return window.VTT_CONFIG;
+  throw new Error('Sin configuración de Supabase (ni /api/config ni config.local.js)');
+}
+
+(async function boot(){
+  try {
+    const cfg = await getConfig();
+    SB = createClient(cfg.url, cfg.anon);
+    let session = (await SB.auth.getSession()).data.session;
+    if (!session){
+      const r = await SB.auth.signInAnonymously();
+      if (r.error) throw new Error(r.error.message + ' (¿está activado el acceso anónimo en Supabase Auth?)');
+      session = r.data.session;
+    }
+    S.uid = session.user.id;
+    DB = makeSupaDB();
+    if (cfg.env && cfg.env !== 'production'){
+      const eb = $('#envBadge'); eb.style.display = ''; eb.textContent = '🧪 ' + (cfg.env === 'preview' ? 'PREPRODUCCIÓN' : cfg.env.toUpperCase());
+      document.title = '[PRE] Mesa de Rol — VTT';
+    }
+    startSubscriptions();
+    showLobby();
+    finishLoading();
+  } catch(e){
+    enterLocalMode('Error al conectar (' + (e && e.message ? e.message : e) + '). Modo local activado.');
+  }
+})();
+
+function applyRole(){
+  const rb = $('#roleBadge');
+  if (!S.gameId){ rb.style.display = 'none'; }
+  else {
+    rb.style.display = '';
+    rb.textContent = S.isDM ? '👑 Dungeon Master' : '🛡 Jugador';
+    rb.className = 'badge' + (S.isDM ? ' dm' : '');
+  }
+  $('#btnViewAs').style.display = (S.isDM && S.gameId) ? '' : 'none';
+  $('#btnFog').style.display = S.isDM ? '' : 'none';
+  $('#btnWalls').style.display = S.isDM ? '' : 'none';
+  $('#tabMapsBtn').style.display = S.isDM ? '' : 'none';
+  $('#emptyImportBtn').style.display = S.isDM ? '' : 'none';
+  $('#emptyHint').textContent = S.isDM
+    ? 'Exporta tu mapa desde Dungeon Alchemist (formato Foundry o Universal VTT) e impórtalo aquí.'
+    : 'El DM aún no ha activado ningún mapa. ¡Prepara tus dados!';
+  renderPanel();
+}
+
+/* ============ partidas (lobby) ============ */
+function gameDoc(){ return S.gameId ? (S.games[S.gameId] || null) : null; }
+function showLobby(){
+  $('#lobby').classList.add('open');
+  $('#gameBadge').style.display = 'none';
+  $('#btnLeave').style.display = 'none';
+  $('#myName').value = (lsGet('vtt_name') || '');
+  renderLobby();
+}
+$('#myName') && ($('#myName').onchange = e => lsSet('vtt_name', e.target.value.trim()));
+function renderLobby(){
+  if (!$('#lobby').classList.contains('open')) return;
+  const list = $('#lobbyList');
+  const entries = Object.entries(S.games).map(([id, g]) => ({ id, ...g })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  let html = '';
+  if (!entries.length){
+    html = '<div class="muted" style="text-align:center; padding:18px">Aún no hay partidas: crea la primera arriba, o espera a tu DM.</div>';
+  }
+  entries.forEach(g => {
+    const priv = !!g.code;
+    const mine = g.dmId === S.uid;
+    html += '<div class="game-item"><div class="row between">' +
+      '<div><b>' + esc(g.name) + '</b> ' + (priv ? '🔒' : '') + (mine ? ' <span class="mini" style="color:var(--accent)">· tu partida</span>' : '') +
+      '<div class="mini">' + (g.createdAt ? new Date(g.createdAt).toLocaleDateString() : '') +
+      (mine && priv ? ' · código: <b style="color:var(--accent)">' + esc(g.code) + '</b>' : '') + '</div></div>' +
+      '<div class="row">' +
+      (mine ? '<button class="small g-del" data-id="' + g.id + '">🗑</button>' : '') +
+      '<button class="primary small g-join" data-id="' + g.id + '">Entrar</button>' +
+      '</div></div>' +
+      (priv && !mine ? '<div class="row g-code-row" data-id="' + g.id + '" style="display:none; margin-top:8px"><input class="g-code grow" placeholder="Código de la partida" maxlength="6" style="text-transform:uppercase"><button class="small g-go" data-id="' + g.id + '">Unirme</button></div>' : '') +
+      '</div>';
+  });
+  list.innerHTML = html;
+  $$('.g-join').forEach(b => b.onclick = () => {
+    const g = S.games[b.dataset.id]; if (!g) return;
+    if (g.code && g.dmId !== S.uid){
+      const row = list.querySelector('.g-code-row[data-id="' + b.dataset.id + '"]');
+      if (row){ row.style.display = 'flex'; row.querySelector('.g-code').focus(); }
+      return;
+    }
+    joinGame(b.dataset.id);
+  });
+  $$('.g-go').forEach(b => b.onclick = () => {
+    const g = S.games[b.dataset.id]; if (!g) return;
+    const row = list.querySelector('.g-code-row[data-id="' + b.dataset.id + '"]');
+    const val = (row.querySelector('.g-code').value || '').trim().toUpperCase();
+    if (val === String(g.code).toUpperCase()) joinGame(b.dataset.id);
+    else toast('Código incorrecto', true);
+  });
+  $$('.g-del').forEach(b => b.onclick = () => armConfirm(b, () => {
+    DB.doc('games/' + b.dataset.id).delete().catch(() => {});
+    Object.values(S.tokens).filter(t => t.gameId === b.dataset.id).forEach(t => DB.doc('tokens/' + t.id).delete().catch(() => {}));
+  }));
+}
+$('#btnCreateGame').onclick = () => {
+  const name = $('#newGameName').value.trim();
+  if (!name){ toast('Ponle nombre a la partida', true); return; }
+  lsSet('vtt_name', $('#myName').value.trim());
+  const priv = $('#newGamePriv').checked;
+  const code = priv ? Array.from({ length: 5 }, () => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 31)]).join('') : null;
+  const id = uuid();
+  DB.doc('games/' + id).set({
+    name, code, dmId: S.uid, activeMapId: null,
+    combat: { active: false, round: 1, turn: 0, entries: [] }, createdAt: Date.now()
+  }).then(() => {
+    $('#newGameName').value = '';
+    joinGame(id);
+    if (code) toast('Partida creada. Código para tus jugadores: ' + code);
+  }).catch(e => toast('No se pudo crear: ' + (e.message || e), true));
+};
+function joinGame(id, silent){
+  const g = S.games[id];
+  if (!g && !silent){ toast('Esa partida ya no existe', true); return; }
+  lsSet('vtt_name', ($('#myName').value || lsGet('vtt_name') || '').trim());
+  S.gameId = id;
+  S.isDM = S.localMode ? true : !!(g && g.dmId === S.uid);
+  S.lobbyManual = false;
+  lsSet('vtt_game', { id });
+  $('#lobby').classList.remove('open');
+  $('#btnLeave').style.display = '';
+  updateGameBadge();
+  S.activeMapId = null;
+  applyRole();
+  syncFromGame();
+  joinRoomFor(id);
+  renderPanel();
+}
+function leaveGame(){
+  S.gameId = null; S.isDM = false; S.lobbyManual = true;
+  lsSet('vtt_game', null);
+  if (GCH && SB){ try { SB.removeChannel(GCH); } catch(e){} }
+  GCH = null; S.peers = []; renderPeers();
+  applyRole(); showLobby(); renderPanel(); needsDraw();
+}
+$('#btnLeave').onclick = leaveGame;
+function updateGameBadge(){
+  const g = gameDoc();
+  const b = $('#gameBadge');
+  if (!g){ b.style.display = 'none'; return; }
+  b.style.display = '';
+  b.textContent = '🎲 ' + g.name + (S.isDM && g.code ? ' · ' + g.code : '');
+  b.title = S.isDM && g.code ? 'Código de la partida: ' + g.code : g.name;
+}
+function joinRoomFor(id){
+  if (!SB || S.localMode) return;
+  if (GCH){ try { SB.removeChannel(GCH); } catch(e){} GCH = null; }
+  const ch = SB.channel('game-' + id, { config: { presence: { key: S.uid }, broadcast: { self: false } } });
+  ch.on('broadcast', { event: 'ping' }, p => {
+    const d = p && p.payload;
+    if (d && typeof d.x === 'number' && typeof d.y === 'number'){
+      S.pings.push({ x: d.x, y: d.y, t: performance.now() });
+      needsDraw();
+    }
+  });
+  ch.on('presence', { event: 'sync' }, () => {
+    try {
+      const st = ch.presenceState();
+      S.peers = Object.values(st).flat();
+    } catch(e){ S.peers = []; }
+    renderPeers();
+  });
+  ch.subscribe(status => {
+    if (status === 'SUBSCRIBED'){
+      try { ch.track({ uid: S.uid, name: myName(), dm: S.isDM }); } catch(e){}
+    }
+  });
+  GCH = ch;
+}
+function renderPeers(){
+  const bar = $('#peersBar'); bar.innerHTML = '';
+  const seen = new Set();
+  S.peers.forEach(p => {
+    const uid = p.uid || '?';
+    if (seen.has(uid)) return; seen.add(uid);
+    const d = document.createElement('div'); d.className = 'peer';
+    const n = p.name || 'Aventurero';
+    d.textContent = (n || 'A').trim().charAt(0).toUpperCase() || 'A';
+    d.title = n + (p.dm ? ' (DM)' : '') + (uid === S.uid ? ' — tú' : '');
+    if (p.dm) d.style.background = 'var(--accent2)';
+    bar.appendChild(d);
+  });
+}
+
+/* ============ suscripciones ============ */
+function startSubscriptions(){
+  DB.collection('games').onSnapshot(snap => {
+    const arr = snapDocs(snap); S.games = {};
+    arr.forEach(g => { S.games[g.id] = g; });
+    if (S.gameId && !S.games[S.gameId] && !S.localMode){
+      toast('La partida ha sido cerrada por el DM'); leaveGame(); return;
+    }
+    if (!S.gameId && !S.lobbyManual && !S.localMode){
+      const st = lsGet('vtt_game');
+      if (st && st.id && S.games[st.id]){ joinGame(st.id, true); return; }
+    }
+    if (S.gameId && !S.localMode){
+      const g = gameDoc();
+      const dmNow = !!(g && g.dmId === S.uid);
+      if (dmNow !== S.isDM){ S.isDM = dmNow; applyRole(); }
+    }
+    updateGameBadge(); syncFromGame(); renderLobby(); renderCombatBadge(); renderPanel(); needsDraw();
+  });
+  DB.collection('maps').onSnapshot(snap => {
+    const arr = snapDocs(snap); S.maps = {};
+    arr.forEach(m => { S.maps[m.id] = m; });
+    S.fogDirty = true; loadActiveMedia(); renderPanel(); needsDraw();
+  });
+  DB.collection('tokens').onSnapshot(snap => {
+    const arr = snapDocs(snap); S.tokens = {};
+    arr.forEach(t => { S.tokens[t.id] = t; });
+    S.fogDirty = true; renderPanel(); needsDraw();
+  });
+  DB.collection('rolls').onSnapshot(snap => {
+    S.rolls = snapDocs(snap).sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 120);
+    if (S.tab === 'dice') renderPanel();
+  });
+}
+function syncFromGame(){
+  const g = gameDoc();
+  const newMap = g ? (g.activeMapId || null) : null;
+  if (newMap !== S.activeMapId){
+    S.activeMapId = newMap; S.fogDirty = true; loadActiveMedia();
+  } else {
+    $('#emptyState').style.display = (S.gameId && !newMap) ? 'flex' : (newMap ? 'none' : 'flex');
+  }
+}
+function saveGame(patch){
+  if (!S.gameId) return;
+  const g = Object.assign({}, gameDoc() || {}, patch);
+  DB.doc('games/' + S.gameId).set(g).catch(e => toast('No se pudo guardar: ' + (e.message || e), true));
+}
+function gameTokens(mapId){
+  return Object.values(S.tokens).filter(t => t.mapId === mapId && (t.gameId || null) === (S.gameId || null));
+}
+
+/* ============ mapa activo y media ============ */
+function activeMap(){ return S.activeMapId ? S.maps[S.activeMapId] : null; }
+function loadActiveMedia(){
+  const m = activeMap();
+  $('#emptyState').style.display = m ? 'none' : 'flex';
+  if (!m){ S.media = { mapId: null, img: null, video: null, w: 0, h: 0 }; return; }
+  if (S.media.mapId === m.id && (S.media.img || S.media.video)) return;
+  const url = m.assetUrl || null;
+  S.media = { mapId: m.id, img: null, video: null, w: m.w || 0, h: m.h || 0 };
+  if (!url) return;
+  if (m.mediaType === 'video'){
+    const v = document.createElement('video');
+    v.src = url; v.loop = true; v.muted = true; v.playsInline = true; v.autoplay = true; v.crossOrigin = 'anonymous';
+    v.addEventListener('loadedmetadata', () => {
+      S.media.video = v; S.media.w = m.w || v.videoWidth; S.media.h = m.h || v.videoHeight;
+      v.play().catch(() => {});
+      fitView(); S.fogDirty = true; needsDraw(); startVideoLoop();
+    });
+    v.addEventListener('error', () => toast('No se pudo cargar el vídeo del mapa', true));
+  } else {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      S.media.img = img; S.media.w = m.w || img.naturalWidth; S.media.h = m.h || img.naturalHeight;
+      fitView(); S.fogDirty = true; needsDraw();
+    };
+    img.onerror = () => toast('No se pudo cargar la imagen del mapa', true);
+    img.src = url;
+  }
+}
+let videoLoopOn = false;
+function startVideoLoop(){
+  if (videoLoopOn) return; videoLoopOn = true;
+  (function loop(){
+    if (S.media.video && activeMap() && activeMap().id === S.media.mapId){
+      needsDraw(); requestAnimationFrame(loop);
+    } else { videoLoopOn = false; }
+  })();
+}
+
+/* ============ cámara y canvas ============ */
+const cv = $('#cv'); const ctx = cv.getContext('2d');
+let drawPending = false;
+function needsDraw(){ if (!drawPending){ drawPending = true; requestAnimationFrame(() => { drawPending = false; draw(); }); } }
+function resizeCanvas(){
+  const r = cv.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+  needsDraw();
+}
+window.addEventListener('resize', resizeCanvas);
+function fitView(){
+  const m = activeMap(); if (!m || !S.media.w) return;
+  const r = cv.getBoundingClientRect();
+  const s = Math.min(r.width / S.media.w, r.height / S.media.h) * 0.95;
+  S.cam.s = s;
+  S.cam.x = (r.width - S.media.w * s) / 2;
+  S.cam.y = (r.height - S.media.h * s) / 2;
+  needsDraw();
+}
+function screenToMap(sx, sy){ return { x: (sx - S.cam.x) / S.cam.s, y: (sy - S.cam.y) / S.cam.s }; }
+
+function gridOf(m){ return Math.max(8, m.grid || 70); }
+function snapToken(m, t, x, y){
+  const g = gridOf(m), ox = m.gridOffX || 0, oy = m.gridOffY || 0;
+  const sz = t.size || 1;
+  if (sz % 2 === 1){
+    return { x: ox + (Math.floor((x - ox) / g) + 0.5) * g, y: oy + (Math.floor((y - oy) / g) + 0.5) * g };
+  }
+  return { x: ox + Math.round((x - ox) / g) * g, y: oy + Math.round((y - oy) / g) * g };
+}
+
+/* ============ muros, puertas, visibilidad ============ */
+function wallSegs(m, forVision){
+  const out = [];
+  const offX = (m.wallOffX || 0), offY = (m.wallOffY || 0);
+  const ds = m.doorStates || {};
+  (m.walls || []).forEach((w, i) => {
+    if (forVision && w.sight === 0) return;
+    if (w.door && ds[i]) return;
+    out.push({ x1: w.x1 + offX, y1: w.y1 + offY, x2: w.x2 + offX, y2: w.y2 + offY, i });
+  });
+  const W = S.media.w || m.w || 0, H = S.media.h || m.h || 0;
+  if (W && H){
+    out.push({ x1: 0, y1: 0, x2: W, y2: 0 }, { x1: W, y1: 0, x2: W, y2: H }, { x1: W, y1: H, x2: 0, y2: H }, { x1: 0, y1: H, x2: 0, y2: 0 });
+  }
+  return out;
+}
+function raySegT(px, py, dx, dy, s){
+  const sx = s.x2 - s.x1, sy = s.y2 - s.y1;
+  const den = dx * sy - dy * sx;
+  if (Math.abs(den) < 1e-9) return null;
+  const qx = s.x1 - px, qy = s.y1 - py;
+  const t = (qx * sy - qy * sx) / den;
+  const u = (qx * dy - qy * dx) / den;
+  if (t > 0.0001 && u >= -0.0001 && u <= 1.0001) return t;
+  return null;
+}
+function visPolygon(cx, cy, maxR, segs){
+  const near = segs.filter(s => {
+    const minx = Math.min(s.x1, s.x2) - cx, maxx = Math.max(s.x1, s.x2) - cx;
+    const miny = Math.min(s.y1, s.y2) - cy, maxy = Math.max(s.y1, s.y2) - cy;
+    return !(minx > maxR || maxx < -maxR || miny > maxR || maxy < -maxR);
+  });
+  const angles = [];
+  const MAXEP = 900;
+  if (near.length * 2 < MAXEP){
+    near.forEach(s => {
+      [[s.x1, s.y1], [s.x2, s.y2]].forEach(p => {
+        const a = Math.atan2(p[1] - cy, p[0] - cx);
+        angles.push(a - 0.0006, a, a + 0.0006);
+      });
+    });
+  }
+  const RAD = 96;
+  for (let i = 0; i < RAD; i++) angles.push(i / RAD * Math.PI * 2);
+  angles.sort((a, b) => a - b);
+  const pts = [];
+  for (let k = 0; k < angles.length; k++){
+    const a = angles[k];
+    if (k > 0 && Math.abs(a - angles[k - 1]) < 1e-6) continue;
+    const dx = Math.cos(a), dy = Math.sin(a);
+    let t = maxR;
+    for (let j = 0; j < near.length; j++){
+      const hit = raySegT(cx, cy, dx, dy, near[j]);
+      if (hit !== null && hit < t) t = hit;
+    }
+    pts.push(cx + dx * t, cy + dy * t);
+  }
+  return pts;
+}
+function pointInPoly(px, py, pts){
+  let inside = false;
+  for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2){
+    const xi = pts[i], yi = pts[i + 1], xj = pts[j], yj = pts[j + 1];
+    if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) inside = true;
+  }
+  return inside;
+}
+
+const fogCanvas = document.createElement('canvas');
+function playerFogActive(){
+  const m = activeMap();
+  if (!m || m.fog === false) return false;
+  if (S.isDM && !S.viewAsPlayer) return false;
+  return true;
+}
+function visionSources(m){
+  return gameTokens(m.id).filter(t => !t.hidden && t.type === 'pc');
+}
+function getExplored(m){
+  const key = (S.gameId || 'x') + ':' + m.id;
+  let c = S.explored[key];
+  const w = Math.max(1, Math.round((S.media.w || 1) * EXPLORED_SCALE));
+  const h = Math.max(1, Math.round((S.media.h || 1) * EXPLORED_SCALE));
+  if (!c || c.width !== w || c.height !== h){
+    c = document.createElement('canvas'); c.width = w; c.height = h;
+    S.explored[key] = c;
+  }
+  return c;
+}
+function recomputeFog(){
+  S.fogDirty = false; S.visPolys = [];
+  const m = activeMap(); if (!m || !S.media.w) return;
+  const segs = wallSegs(m, true);
+  const g = gridOf(m);
+  const srcs = visionSources(m);
+  srcs.forEach(t => {
+    const vTiles = (t.vision == null ? (m.defaultVision || 12) : t.vision);
+    const R = vTiles > 0 ? vTiles * g : Math.hypot(S.media.w, S.media.h);
+    S.visPolys.push(visPolygon(t.x, t.y, R, segs));
+  });
+  const ex = getExplored(m); const xc = ex.getContext('2d');
+  xc.save(); xc.scale(EXPLORED_SCALE, EXPLORED_SCALE);
+  xc.fillStyle = '#fff';
+  S.visPolys.forEach(p => { if (p.length > 5){ xc.beginPath(); xc.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) xc.lineTo(p[i], p[i + 1]); xc.closePath(); xc.fill(); } });
+  xc.restore();
+  const fs = Math.min(1, 2000 / Math.max(S.media.w, S.media.h));
+  fogCanvas.width = Math.max(1, Math.round(S.media.w * fs));
+  fogCanvas.height = Math.max(1, Math.round(S.media.h * fs));
+  const fc = fogCanvas.getContext('2d');
+  fc.clearRect(0, 0, fogCanvas.width, fogCanvas.height);
+  fc.fillStyle = 'rgba(6,5,10,0.985)';
+  fc.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
+  fc.globalCompositeOperation = 'destination-out';
+  fc.globalAlpha = 0.55;
+  fc.drawImage(ex, 0, 0, fogCanvas.width, fogCanvas.height);
+  fc.globalAlpha = 1;
+  fc.save(); fc.scale(fs, fs);
+  S.visPolys.forEach(p => { if (p.length > 5){ fc.beginPath(); fc.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) fc.lineTo(p[i], p[i + 1]); fc.closePath(); fc.fill(); } });
+  fc.restore();
+  fc.globalCompositeOperation = 'source-over';
+}
+function tokenVisibleToPlayers(t){
+  if (t.type === 'pc') return !t.hidden;
+  if (t.hidden) return false;
+  if (!playerFogActive()) return true;
+  if (!S.visPolys.length) return false;
+  return S.visPolys.some(p => pointInPoly(t.x, t.y, p));
+}
+
+/* ============ imágenes de token ============ */
+const imgCache = {};
+function tokenImage(t){
+  const url = t.imgUrl || null;
+  if (!url) return null;
+  let c = imgCache[url];
+  if (!c){
+    c = new Image();
+    c.crossOrigin = 'anonymous';
+    c.onload = () => needsDraw();
+    c.src = url;
+    imgCache[url] = c;
+  }
+  return (c.complete && c.naturalWidth) ? c : null;
+}
+async function shrinkImage(file, max){
+  max = max || 256;
+  try {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(bmp.width * k));
+    c.height = Math.max(1, Math.round(bmp.height * k));
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r, 'image/webp', 0.85));
+    return blob || file;
+  } catch(e){ return file; }
+}
+
+/* ============ dibujo ============ */
+function draw(){
+  const dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = '#0b0908'; ctx.fillRect(0, 0, cv.width, cv.height);
+  const m = activeMap();
+  if (!m || !S.gameId) return;
+  if (S.fogDirty) recomputeFog();
+  ctx.save();
+  ctx.translate(S.cam.x, S.cam.y); ctx.scale(S.cam.s, S.cam.s);
+  if (S.media.video) ctx.drawImage(S.media.video, 0, 0, S.media.w, S.media.h);
+  else if (S.media.img) ctx.drawImage(S.media.img, 0, 0, S.media.w, S.media.h);
+  else { ctx.fillStyle = '#1a150f'; ctx.fillRect(0, 0, S.media.w || 2000, S.media.h || 1400); }
+  const g = gridOf(m);
+  if (S.showGrid && m.showGrid !== false){
+    ctx.strokeStyle = 'rgba(0,0,0,0.28)'; ctx.lineWidth = 1 / S.cam.s;
+    ctx.beginPath();
+    const ox = (m.gridOffX || 0) % g, oy = (m.gridOffY || 0) % g;
+    for (let x = ox; x <= S.media.w; x += g){ ctx.moveTo(x, 0); ctx.lineTo(x, S.media.h); }
+    for (let y = oy; y <= S.media.h; y += g){ ctx.moveTo(0, y); ctx.lineTo(S.media.w, y); }
+    ctx.stroke();
+  }
+  const fogOn = playerFogActive();
+  const toks = gameTokens(m.id);
+  const seeAll = S.isDM && !S.viewAsPlayer;
+  toks.filter(t => t.type !== 'pc').forEach(t => {
+    if (seeAll || tokenVisibleToPlayers(t)) drawToken(t, m, seeAll && t.hidden);
+  });
+  drawDoors(m, g);
+  if (fogOn){
+    ctx.drawImage(fogCanvas, 0, 0, S.media.w, S.media.h);
+  } else if (S.isDM && m.fog !== false && S.viewAsPlayer === false){
+    ctx.globalAlpha = 0.22;
+    ctx.drawImage(fogCanvas, 0, 0, S.media.w, S.media.h);
+    ctx.globalAlpha = 1;
+  }
+  toks.filter(t => t.type === 'pc' && (!t.hidden || seeAll)).forEach(t => drawToken(t, m, seeAll && t.hidden));
+  if (S.isDM && S.showWalls){
+    ctx.lineWidth = 3 / S.cam.s;
+    wallSegs(m, false).forEach(s => {
+      if (s.i == null) return;
+      const w = m.walls[s.i];
+      ctx.strokeStyle = w.door ? '#e0b43c' : '#d8452e';
+      ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
+    });
+    const ds = m.doorStates || {};
+    (m.walls || []).forEach((w, i) => {
+      if (w.door && ds[i]){
+        ctx.strokeStyle = 'rgba(224,180,60,.45)';
+        ctx.beginPath(); ctx.moveTo(w.x1 + (m.wallOffX || 0), w.y1 + (m.wallOffY || 0)); ctx.lineTo(w.x2 + (m.wallOffX || 0), w.y2 + (m.wallOffY || 0)); ctx.stroke();
+      }
+    });
+  }
+  const now = performance.now();
+  S.pings = S.pings.filter(p => now - p.t < 2000);
+  S.pings.forEach(p => {
+    const k = (now - p.t) / 2000;
+    ctx.strokeStyle = 'rgba(201,162,39,' + (1 - k) + ')';
+    ctx.lineWidth = 4 / S.cam.s;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 10 + k * g * 1.6, 0, Math.PI * 2); ctx.stroke();
+  });
+  if (S.pings.length) needsDraw();
+  ctx.restore();
+}
+function drawDoors(m, g){
+  const ds = m.doorStates || {};
+  (m.walls || []).forEach((w, i) => {
+    if (!w.door) return;
+    const x = (w.x1 + w.x2) / 2 + (m.wallOffX || 0), y = (w.y1 + w.y2) / 2 + (m.wallOffY || 0);
+    const open = !!ds[i];
+    const r = Math.max(10, g * 0.18);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = open ? 'rgba(80,140,70,.92)' : 'rgba(150,100,40,.95)';
+    ctx.strokeStyle = '#0008'; ctx.lineWidth = 2 / S.cam.s;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold ' + (r * 1.1) + 'px Inter';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(open ? '🚪' : '🔒', 0, 1);
+    ctx.restore();
+  });
+}
+function drawToken(t, m, ghost){
+  const g = gridOf(m);
+  const r = (t.size || 1) * g / 2 * 0.92;
+  let x = t.x, y = t.y;
+  if (S.drag && S.drag.tokenId === t.id){ x = S.drag.curX; y = S.drag.curY; }
+  ctx.save();
+  if (ghost) ctx.globalAlpha = 0.45;
+  ctx.fillStyle = 'rgba(0,0,0,.45)';
+  ctx.beginPath(); ctx.ellipse(x + r * 0.08, y + r * 0.12, r, r * 0.92, 0, 0, Math.PI * 2); ctx.fill();
+  const im = tokenImage(t);
+  if (im){
+    ctx.save();
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.clip();
+    const k = Math.max((2 * r) / im.naturalWidth, (2 * r) / im.naturalHeight);
+    ctx.drawImage(im, x - im.naturalWidth * k / 2, y - im.naturalHeight * k / 2, im.naturalWidth * k, im.naturalHeight * k);
+    ctx.restore();
+    ctx.lineWidth = Math.max(2, g * 0.05);
+    ctx.strokeStyle = t.color || '#555';
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+  } else {
+    ctx.fillStyle = t.color || '#555';
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = '700 ' + (r * 0.85) + 'px Inter';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText((t.name || '?').trim().charAt(0).toUpperCase(), x, y + 1);
+  }
+  ctx.lineWidth = Math.max(2, g * 0.045);
+  ctx.strokeStyle = t.type === 'pc' ? '#e8ddc8' : (t.type === 'npc' ? '#7fb3d5' : '#1a1109');
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+  if (ghost){ ctx.setLineDash([6, 5]); ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
+  if (t.hpMax > 0){
+    const pct = clamp((t.hp || 0) / t.hpMax, 0, 1);
+    ctx.lineWidth = Math.max(3, g * 0.07);
+    ctx.strokeStyle = 'rgba(0,0,0,.6)';
+    ctx.beginPath(); ctx.arc(x, y, r + ctx.lineWidth * 0.8, -Math.PI / 2, Math.PI * 1.5); ctx.stroke();
+    ctx.strokeStyle = pct > 0.5 ? '#4e8c4a' : (pct > 0.25 ? '#c9a227' : '#b4422e');
+    ctx.beginPath(); ctx.arc(x, y, r + ctx.lineWidth * 0.8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pct); ctx.stroke();
+  }
+  ctx.font = '600 ' + Math.max(11, g * 0.22) + 'px Inter';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const tw = ctx.measureText(t.name || '').width;
+  ctx.fillStyle = 'rgba(0,0,0,.65)';
+  ctx.fillRect(x - tw / 2 - 5, y + r + 4, tw + 10, g * 0.3);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(t.name || '', x, y + r + 4 + g * 0.15);
+  const c = (gameDoc() || {}).combat;
+  if (c && c.active && c.entries[c.turn] && c.entries[c.turn].tokenId === t.id){
+    ctx.strokeStyle = '#c9a227'; ctx.lineWidth = Math.max(2.5, g * 0.05);
+    ctx.setLineDash([8, 6]);
+    ctx.beginPath(); ctx.arc(x, y, r + g * 0.16, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
+/* ============ interacción canvas ============ */
+const pointers = new Map();
+let pinchStart = null;
+function canMoveToken(t){ return S.isDM; }
+function hitToken(mx, my){
+  const m = activeMap(); if (!m) return null;
+  const g = gridOf(m);
+  const seeAll = S.isDM && !S.viewAsPlayer;
+  const list = gameTokens(m.id)
+    .filter(t => seeAll || (t.type === 'pc' ? !t.hidden : tokenVisibleToPlayers(t)))
+    .sort((a, b) => (a.size || 1) - (b.size || 1));
+  for (const t of list){
+    const r = (t.size || 1) * g / 2;
+    if (Math.hypot(mx - t.x, my - t.y) <= r) return t;
+  }
+  return null;
+}
+function hitDoor(mx, my){
+  const m = activeMap(); if (!m) return null;
+  const g = gridOf(m);
+  const walls = m.walls || [];
+  for (let i = 0; i < walls.length; i++){
+    const w = walls[i]; if (!w.door) continue;
+    const x = (w.x1 + w.x2) / 2 + (m.wallOffX || 0), y = (w.y1 + w.y2) / 2 + (m.wallOffY || 0);
+    if (Math.hypot(mx - x, my - y) <= Math.max(12, g * 0.22)) return i;
+  }
+  return null;
+}
+cv.addEventListener('pointerdown', e => {
+  cv.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 2){
+    const pts = [...pointers.values()];
+    pinchStart = { d: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y), s: S.cam.s, cx: (pts[0].x + pts[1].x) / 2, cy: (pts[0].y + pts[1].y) / 2, camx: S.cam.x, camy: S.cam.y };
+    S.drag = null; S.pan = null;
+    return;
+  }
+  const rect = cv.getBoundingClientRect();
+  const p = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
+  if (S.isDM){
+    const di = hitDoor(p.x, p.y);
+    if (di !== null){
+      const m = activeMap();
+      const ds = Object.assign({}, m.doorStates || {});
+      ds[di] = !ds[di];
+      DB.doc('maps/' + m.id).update({ doorStates: ds }).catch(() => {});
+      S.fogDirty = true; needsDraw();
+      return;
+    }
+  }
+  const t = hitToken(p.x, p.y);
+  if (t && canMoveToken(t)){
+    S.drag = { tokenId: t.id, startX: t.x, startY: t.y, curX: t.x, curY: t.y, moved: false };
+    cv.classList.add('dragging');
+  } else {
+    S.pan = { sx: e.clientX, sy: e.clientY, camx: S.cam.x, camy: S.cam.y };
+    cv.classList.add('dragging');
+  }
+});
+cv.addEventListener('pointermove', e => {
+  if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinchStart && pointers.size === 2){
+    const pts = [...pointers.values()];
+    const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    const k = d / pinchStart.d;
+    const ns = clamp(pinchStart.s * k, 0.04, 6);
+    const rect = cv.getBoundingClientRect();
+    const cx = pinchStart.cx - rect.left, cy = pinchStart.cy - rect.top;
+    S.cam.x = cx - (cx - pinchStart.camx) * (ns / pinchStart.s);
+    S.cam.y = cy - (cy - pinchStart.camy) * (ns / pinchStart.s);
+    S.cam.s = ns; needsDraw();
+    return;
+  }
+  const rect = cv.getBoundingClientRect();
+  if (S.drag){
+    const p = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
+    S.drag.curX = p.x; S.drag.curY = p.y; S.drag.moved = true;
+    const m = activeMap();
+    if (m){
+      const g = gridOf(m);
+      const cells = Math.max(Math.abs(Math.round((p.x - S.drag.startX) / g)), Math.abs(Math.round((p.y - S.drag.startY) / g)));
+      const lbl = $('#distLabel');
+      lbl.style.display = 'block';
+      lbl.style.left = (e.clientX - rect.left + 14) + 'px';
+      lbl.style.top = (e.clientY - rect.top - 26) + 'px';
+      lbl.textContent = cells + ' casillas · ' + (cells * 5) + ' ft';
+    }
+    needsDraw();
+  } else if (S.pan){
+    S.cam.x = S.pan.camx + (e.clientX - S.pan.sx);
+    S.cam.y = S.pan.camy + (e.clientY - S.pan.sy);
+    needsDraw();
+  }
+});
+function endPointer(e){
+  pointers.delete(e.pointerId);
+  if (pointers.size < 2) pinchStart = null;
+  $('#distLabel').style.display = 'none';
+  cv.classList.remove('dragging');
+  if (S.drag){
+    const d = S.drag; S.drag = null;
+    const t = S.tokens[d.tokenId]; const m = activeMap();
+    if (t && m && d.moved){
+      const sn = snapToken(m, t, d.curX, d.curY);
+      t.x = sn.x; t.y = sn.y; S.fogDirty = true; needsDraw();
+      DB.doc('tokens/' + t.id).update({ x: sn.x, y: sn.y }).catch(err => toast('No se pudo mover el token: ' + (err.message || err), true));
+    } else needsDraw();
+  }
+  S.pan = null;
+}
+cv.addEventListener('pointerup', endPointer);
+cv.addEventListener('pointercancel', endPointer);
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = cv.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const k = e.deltaY < 0 ? 1.13 : 1 / 1.13;
+  const ns = clamp(S.cam.s * k, 0.04, 6);
+  S.cam.x = mx - (mx - S.cam.x) * (ns / S.cam.s);
+  S.cam.y = my - (my - S.cam.y) * (ns / S.cam.s);
+  S.cam.s = ns; needsDraw();
+}, { passive: false });
+cv.addEventListener('dblclick', e => {
+  const rect = cv.getBoundingClientRect();
+  const p = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
+  S.pings.push({ x: p.x, y: p.y, t: performance.now() });
+  needsDraw();
+  if (GCH){ try { GCH.send({ type: 'broadcast', event: 'ping', payload: { x: p.x, y: p.y } }); } catch(err){} }
+});
+
+$('#btnZoomIn').onclick = () => { S.cam.s = clamp(S.cam.s * 1.25, 0.04, 6); needsDraw(); };
+$('#btnZoomOut').onclick = () => { S.cam.s = clamp(S.cam.s / 1.25, 0.04, 6); needsDraw(); };
+$('#btnFit').onclick = fitView;
+$('#btnGrid').onclick = () => { S.showGrid = !S.showGrid; needsDraw(); };
+$('#btnWalls').onclick = () => { S.showWalls = !S.showWalls; $('#btnWalls').style.borderColor = S.showWalls ? 'var(--accent)' : ''; renderPanel(); needsDraw(); };
+$('#btnFog').onclick = () => {
+  const m = activeMap(); if (!m) return;
+  DB.doc('maps/' + m.id).update({ fog: m.fog === false }).then(() => toast(m.fog === false ? 'Niebla activada' : 'Niebla desactivada')).catch(() => {});
+};
+$('#btnViewAs').onclick = () => {
+  S.viewAsPlayer = !S.viewAsPlayer;
+  $('#btnViewAs').textContent = S.viewAsPlayer ? '👑 Volver a vista DM' : '👁 Ver como jugador';
+  S.fogDirty = true; needsDraw();
+};
+$('#sidebarToggle').onclick = () => $('#sidebar').classList.toggle('open');
+
+/* ============ pestañas / paneles ============ */
+$$('#tabs button').forEach(b => b.onclick = () => {
+  $$('#tabs button').forEach(x => x.classList.remove('active'));
+  b.classList.add('active'); S.tab = b.dataset.tab; renderPanel();
+});
+function renderPanel(){
+  const p = $('#panel');
+  if (!S.gameId){ p.innerHTML = '<div class="muted">Entra en una partida para empezar.</div>'; return; }
+  if (S.tab === 'maps') renderMapsPanel(p);
+  else if (S.tab === 'tokens') renderTokensPanel(p);
+  else if (S.tab === 'init') renderInitPanel(p);
+  else renderDicePanel(p);
+}
+
+/* --- mapas --- */
+function renderMapsPanel(p){
+  if (!S.isDM){ p.innerHTML = '<div class="muted">Solo el DM gestiona los mapas.</div>'; return; }
+  let html = '<button class="primary" id="btnImport" style="width:100%">📥 Importar mapa</button>';
+  html += '<div class="section-title">Tus mapas (biblioteca común a tus partidas)</div>';
+  const maps = Object.values(S.maps).filter(m => !m.ownerId || m.ownerId === S.uid);
+  if (!maps.length) html += '<div class="muted">Aún no hay mapas. Exporta desde Dungeon Alchemist en formato <b>Foundry</b> (JSON + imagen) o <b>Universal VTT</b>.</div>';
+  maps.forEach(m => {
+    const active = m.id === S.activeMapId;
+    html += '<div class="map-item' + (active ? ' active' : '') + '" data-id="' + m.id + '">' +
+      '<div class="thumb" style="background-image:url(' + esc(m.assetUrl || '') + ')"></div>' +
+      '<div class="grow"><b>' + esc(m.name) + '</b><div class="mini">' + ((m.walls || []).length) + ' muros · rejilla ' + (m.grid || '?') + 'px' + (active ? ' · <b style="color:var(--accent)">ACTIVO</b>' : '') + '</div></div>' +
+      '<button class="small act-del" data-id="' + m.id + '" title="Eliminar">🗑</button></div>';
+  });
+  const m = activeMap();
+  if (m){
+    html += '<div class="section-title">Ajustes del mapa activo</div><div class="card">' +
+      '<div class="row between"><label>Niebla de guerra</label><button class="small" id="setFog">' + (m.fog === false ? 'Activar' : 'Desactivar') + '</button></div>' +
+      '<div class="row between" style="margin-top:6px"><label>Rejilla (px/casilla)</label><input type="number" id="setGrid" value="' + (m.grid || 70) + '" min="8"></div>' +
+      '<div class="row between" style="margin-top:6px"><label>Visión por defecto (casillas)</label><input type="number" id="setVision" value="' + (m.defaultVision == null ? 12 : m.defaultVision) + '" min="0"></div>';
+    if (S.showWalls){
+      html += '<div class="section-title">Calibrar muros (🧱 activado)</div>' +
+        '<div class="mini" style="margin-bottom:6px">Si los muros no coinciden con el dibujo, muévelos:</div>' +
+        '<div class="row"><button class="small cal" data-x="-5" data-y="0">←5</button><button class="small cal" data-x="5" data-y="0">→5</button><button class="small cal" data-x="0" data-y="-5">↑5</button><button class="small cal" data-x="0" data-y="5">↓5</button>' +
+        '<button class="small cal" data-x="-' + (m.grid || 70) + '" data-y="0">←1 casilla</button><button class="small cal" data-x="' + (m.grid || 70) + '" data-y="0">→1 casilla</button></div>' +
+        '<div class="row" style="margin-top:4px"><button class="small cal" data-x="0" data-y="-' + (m.grid || 70) + '">↑1 casilla</button><button class="small cal" data-x="0" data-y="' + (m.grid || 70) + '">↓1 casilla</button><button class="small" id="calReset">Reiniciar</button><span class="mini">off: ' + (m.wallOffX || 0) + ',' + (m.wallOffY || 0) + '</span></div>';
+    }
+    html += '<div class="row" style="margin-top:8px"><button class="small" id="resetExplored">🌫 Reiniciar zonas exploradas</button></div></div>';
+  }
+  p.innerHTML = html;
+  $('#btnImport').onclick = openImport;
+  $$('.map-item').forEach(el => el.onclick = e => {
+    if (e.target.classList.contains('act-del')) return;
+    saveGame({ activeMapId: el.dataset.id });
+  });
+  $$('.act-del').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    armConfirm(b, () => {
+      const id = b.dataset.id;
+      DB.doc('maps/' + id).delete().catch(() => {});
+      if (S.activeMapId === id) saveGame({ activeMapId: null });
+      Object.values(S.tokens).filter(t => t.mapId === id).forEach(t => DB.doc('tokens/' + t.id).delete().catch(() => {}));
+    });
+  });
+  if (m){
+    $('#setFog').onclick = () => DB.doc('maps/' + m.id).update({ fog: m.fog === false }).catch(() => {});
+    $('#setGrid').onchange = e => DB.doc('maps/' + m.id).update({ grid: parseInt(e.target.value) || 70 }).catch(() => {});
+    $('#setVision').onchange = e => DB.doc('maps/' + m.id).update({ defaultVision: parseInt(e.target.value) || 0 }).catch(() => {});
+    $$('.cal').forEach(b => b.onclick = () => {
+      DB.doc('maps/' + m.id).update({ wallOffX: (m.wallOffX || 0) + parseInt(b.dataset.x), wallOffY: (m.wallOffY || 0) + parseInt(b.dataset.y) }).catch(() => {});
+    });
+    const cr = $('#calReset'); if (cr) cr.onclick = () => DB.doc('maps/' + m.id).update({ wallOffX: 0, wallOffY: 0 }).catch(() => {});
+    $('#resetExplored').onclick = () => {
+      delete S.explored[(S.gameId || 'x') + ':' + m.id];
+      S.fogDirty = true; needsDraw(); toast('Zonas exploradas reiniciadas');
+    };
+  }
+}
+
+/* --- tokens --- */
+function renderTokensPanel(p){
+  const m = activeMap();
+  let html = '';
+  if (S.isDM) html += '<button class="primary" id="btnNewToken" style="width:100%"' + (m ? '' : ' disabled') + '>＋ Nuevo token</button>';
+  if (!m){ p.innerHTML = html + '<div class="muted" style="margin-top:10px">Activa un mapa para colocar tokens.</div>'; bindTokenPanel(); return; }
+  const toks = gameTokens(m.id);
+  const seeAll = S.isDM;
+  const groups = [['Personajes', toks.filter(t => t.type === 'pc')], ['PNJ', toks.filter(t => t.type === 'npc')], ['Monstruos', toks.filter(t => t.type === 'monster')]];
+  groups.forEach(([title, list]) => {
+    if (!seeAll){
+      list = list.filter(t => !t.hidden);
+      if (title === 'Monstruos') list = list.filter(tokenVisibleToPlayers);
+    }
+    if (!list.length) return;
+    html += '<div class="section-title">' + title + '</div>';
+    list.forEach(t => {
+      const url = t.imgUrl || null;
+      const dot = url
+        ? '<span class="tok-dot" style="background-image:url(' + esc(url) + '); border-color:' + esc(t.color || '#555') + '"></span>'
+        : '<span class="tok-dot" style="background:' + esc(t.color || '#555') + '">' + esc((t.name || '?').charAt(0).toUpperCase()) + '</span>';
+      html += '<div class="card" data-tid="' + t.id + '"><div class="row between">' +
+        '<div class="row grow" style="cursor:pointer">' + dot +
+        '<div class="grow"><b>' + esc(t.name) + '</b>' + (t.hidden ? ' <span class="mini">(oculto)</span>' : '') +
+        '<div class="mini">PV ' + (t.hp || 0) + '/' + (t.hpMax || 0) + ' · ' + (t.size || 1) + '×' + (t.size || 1) + '</div></div></div>' +
+        '<div class="row">' +
+        (S.isDM ? '<button class="small t-hp" data-d="-1" data-tid="' + t.id + '">−</button><button class="small t-hp" data-d="1" data-tid="' + t.id + '">＋</button>' +
+          '<button class="small t-hide" data-tid="' + t.id + '">' + (t.hidden ? '👁' : '🙈') + '</button><button class="small t-edit" data-tid="' + t.id + '">✎</button>' : '') +
+        '</div></div>' +
+        (t.hpMax > 0 ? '<div class="hpbar"><i style="width:' + clamp((t.hp || 0) / t.hpMax * 100, 0, 100) + '%"></i></div>' : '') +
+        '</div>';
+    });
+  });
+  if (!toks.length) html += '<div class="muted" style="margin-top:10px">' + (S.isDM ? 'Crea tokens para PJs y monstruos.' : 'El DM aún no ha colocado tokens.') + '</div>';
+  if (!S.isDM) html += '<div class="mini" style="margin-top:8px">💡 Los tokens los mueve el DM. Pulsa un token de la lista para centrar la vista en él; doble clic en el mapa para señalar algo.</div>';
+  p.innerHTML = html;
+  bindTokenPanel();
+}
+function bindTokenPanel(){
+  const bn = $('#btnNewToken'); if (bn) bn.onclick = () => openTokenModal(null);
+  $$('.t-edit').forEach(b => b.onclick = () => openTokenModal(b.dataset.tid));
+  $$('.t-hide').forEach(b => b.onclick = () => {
+    const t = S.tokens[b.dataset.tid];
+    DB.doc('tokens/' + t.id).update({ hidden: !t.hidden }).catch(() => {});
+    S.fogDirty = true;
+  });
+  $$('.t-hp').forEach(b => b.onclick = () => {
+    const t = S.tokens[b.dataset.tid];
+    DB.doc('tokens/' + t.id).update({ hp: (t.hp || 0) + parseInt(b.dataset.d) }).catch(() => {});
+  });
+  $$('.card[data-tid]').forEach(el => {
+    const rowEl = el.querySelector('.row.grow');
+    if (rowEl) rowEl.onclick = () => {
+      const t = S.tokens[el.dataset.tid]; if (!t) return;
+      const r = cv.getBoundingClientRect();
+      S.cam.x = r.width / 2 - t.x * S.cam.s;
+      S.cam.y = r.height / 2 - t.y * S.cam.s;
+      needsDraw();
+    };
+  });
+}
+function setTkImgPreview(url){
+  const img = $('#tkImgPrev');
+  if (url){ img.src = url; img.style.display = ''; $('#tkImgClear').style.display = ''; }
+  else { img.removeAttribute('src'); img.style.display = 'none'; $('#tkImgClear').style.display = 'none'; }
+}
+function openTokenModal(id){
+  S.editingToken = id;
+  S.tkImgBlob = null; S.tkImgClear = false;
+  const t = id ? S.tokens[id] : null;
+  $('#tokenModalTitle').textContent = t ? 'Editar token' : 'Nuevo token';
+  $('#tkName').value = t ? t.name : '';
+  $('#tkType').value = t ? t.type : 'monster';
+  $('#tkColor').value = t ? (t.color || '#8c2b2b') : COLORS[Math.floor(Math.random() * COLORS.length)];
+  $('#tkSize').value = t ? (t.size || 1) : 1;
+  $('#tkHp').value = t ? (t.hp || 0) : 10;
+  $('#tkHpMax').value = t ? (t.hpMax || 0) : 10;
+  $('#tkVision').value = t ? (t.vision == null ? 12 : t.vision) : 12;
+  $('#tkImg').value = '';
+  setTkImgPreview(t ? (t.imgUrl || null) : null);
+  $('#tkDelete').style.display = t ? '' : 'none';
+  $('#tkDup').style.display = t ? '' : 'none';
+  $('#tokenModal').classList.add('open');
+}
+$('#tkImg').onchange = async e => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  S.tkImgBlob = await shrinkImage(f);
+  S.tkImgClear = false;
+  setTkImgPreview(URL.createObjectURL(S.tkImgBlob));
+};
+$('#tkImgClear').onclick = () => { S.tkImgBlob = null; S.tkImgClear = true; $('#tkImg').value = ''; setTkImgPreview(null); };
+$('#tkCancel').onclick = () => $('#tokenModal').classList.remove('open');
+$('#tkSave').onclick = async () => {
+  const m = activeMap(); if (!m || !S.gameId) return;
+  const btn = $('#tkSave'); btn.disabled = true;
+  try {
+    const id = S.editingToken || uuid();
+    const old = S.editingToken ? S.tokens[S.editingToken] : null;
+    let imgUrl = old ? (old.imgUrl || null) : null;
+    if (S.tkImgClear) imgUrl = null;
+    if (S.tkImgBlob){
+      if (S.localMode) imgUrl = URL.createObjectURL(S.tkImgBlob);
+      else imgUrl = (await uploadAsset(S.tkImgBlob)).url;
+    }
+    const center = old ? { x: old.x, y: old.y } : viewCenterSnap(m);
+    const t = {
+      gameId: S.gameId, mapId: m.id, name: $('#tkName').value.trim() || 'Token',
+      type: $('#tkType').value, color: $('#tkColor').value,
+      size: parseInt($('#tkSize').value) || 1,
+      hp: parseInt($('#tkHp').value) || 0, hpMax: parseInt($('#tkHpMax').value) || 0,
+      vision: parseInt($('#tkVision').value), hidden: old ? !!old.hidden : ($('#tkType').value === 'monster'),
+      imgUrl,
+      x: center.x, y: center.y, createdAt: old ? (old.createdAt || Date.now()) : Date.now()
+    };
+    await DB.doc('tokens/' + id).set(t);
+    $('#tokenModal').classList.remove('open'); S.fogDirty = true;
+  } catch(e){
+    toast('No se pudo guardar: ' + (e && e.message ? e.message : e), true);
+  }
+  btn.disabled = false;
+};
+$('#tkDelete').onclick = () => {
+  if (!S.editingToken) return;
+  DB.doc('tokens/' + S.editingToken).delete().catch(() => {});
+  $('#tokenModal').classList.remove('open');
+};
+$('#tkDup').onclick = () => {
+  const t = S.tokens[S.editingToken]; if (!t) return;
+  const m = activeMap(); const g = gridOf(m);
+  const copy = Object.assign({}, t, { x: t.x + g, y: t.y, name: nextName(t.name) });
+  delete copy.id;
+  DB.doc('tokens/' + uuid()).set(copy).catch(() => {});
+  toast('Token duplicado');
+};
+function nextName(n){
+  const m = n.match(/^(.*?)(\d+)$/);
+  if (m) return m[1] + (parseInt(m[2]) + 1);
+  return n + ' 2';
+}
+function viewCenterSnap(m){
+  const r = cv.getBoundingClientRect();
+  const c = screenToMap(r.width / 2, r.height / 2);
+  const g = gridOf(m);
+  return snapToken(m, { size: 1 }, clamp(c.x, g, (S.media.w || 1000) - g), clamp(c.y, g, (S.media.h || 1000) - g));
+}
+
+/* --- iniciativa --- */
+function renderCombatBadge(){
+  const g = gameDoc();
+  const c = g ? g.combat : null;
+  const b = $('#roundBadge');
+  if (c && c.active){
+    b.style.display = '';
+    const cur = c.entries[c.turn];
+    b.textContent = '⚔ Ronda ' + c.round + (cur ? ' · ' + cur.name : '');
+  } else b.style.display = 'none';
+}
+function renderInitPanel(p){
+  const g = gameDoc();
+  const c = (g && g.combat) || { active: false, round: 1, turn: 0, entries: [] };
+  let html = '';
+  if (S.isDM){
+    html += '<div class="row">' +
+      (c.active
+        ? '<button id="btnNextTurn" class="primary grow">⏭ Siguiente turno</button><button id="btnEndCombat" class="danger">Fin</button>'
+        : '<button id="btnStartCombat" class="primary grow"' + (c.entries.length ? '' : ' disabled') + '>⚔ Iniciar combate</button>') +
+      '</div>' +
+      '<div class="row" style="margin-top:6px"><button class="small" id="btnAddFromMap">＋ Tokens del mapa</button><button class="small" id="btnRollInit">🎲 Tirar iniciativas</button><button class="small" id="btnClearInit">Vaciar</button></div>' +
+      '<div class="row" style="margin-top:6px"><input id="addManualName" class="grow" placeholder="Añadir combatiente…"><button class="small" id="btnAddManual">＋</button></div>';
+  }
+  html += '<div class="section-title">Orden de iniciativa' + (c.active ? ' · ronda ' + c.round : '') + '</div>';
+  if (!c.entries.length) html += '<div class="muted">Sin combatientes. ' + (S.isDM ? 'Añádelos desde el mapa o manualmente.' : '') + '</div>';
+  const order = c.entries.map((e, i) => ({ e, i })).sort((a, b) => (b.e.init || 0) - (a.e.init || 0));
+  order.forEach(({ e, i }) => {
+    const activeTurn = c.active && i === c.turn;
+    html += '<div class="init-entry' + (activeTurn ? ' active-turn' : '') + '">' +
+      (S.isDM ? '<input class="init-val" type="number" data-i="' + i + '" value="' + (e.init || 0) + '">' : '<b style="width:34px;text-align:center">' + (e.init || 0) + '</b>') +
+      '<div class="grow"><b>' + esc(e.name) + '</b>' +
+      '<div class="mini">PV ' + (e.hp == null ? '—' : e.hp + '/' + (e.hpMax || '?')) + '</div>' +
+      '<div class="conds">' + (e.conds || []).map(cd => '<span class="cond" data-i="' + i + '" data-c="' + esc(cd) + '">' + esc(cd) + (S.isDM ? ' ✕' : '') + '</span>').join('') + '</div></div>' +
+      (S.isDM ? '<div style="display:flex;flex-direction:column;gap:3px">' +
+        '<div class="row"><button class="small hp-adj" data-i="' + i + '" data-d="-1">−</button><button class="small hp-adj" data-i="' + i + '" data-d="1">＋</button></div>' +
+        '<div class="row"><select class="cond-add" data-i="' + i + '"><option value="">☠＋</option>' + CONDS.map(cd => '<option>' + cd + '</option>').join('') + '</select><button class="small rm-entry" data-i="' + i + '">🗑</button></div></div>' : '') +
+      '</div>';
+  });
+  p.innerHTML = html;
+  if (!S.isDM) return;
+  const C = () => JSON.parse(JSON.stringify((gameDoc() && gameDoc().combat) || { active: false, round: 1, turn: 0, entries: [] }));
+  const save = cc => saveGame({ combat: cc });
+  const bsc = $('#btnStartCombat'); if (bsc) bsc.onclick = () => { const cc = C(); cc.active = true; cc.round = 1; cc.turn = topIdx(cc); save(cc); };
+  const bnt = $('#btnNextTurn'); if (bnt) bnt.onclick = () => {
+    const cc = C(); if (!cc.entries.length) return;
+    const order2 = cc.entries.map((e, i) => ({ e, i })).sort((a, b) => (b.e.init || 0) - (a.e.init || 0));
+    const pos = order2.findIndex(o => o.i === cc.turn);
+    const nxt = (pos + 1) % order2.length;
+    if (nxt === 0) cc.round++;
+    cc.turn = order2[nxt].i; save(cc);
+  };
+  const bec = $('#btnEndCombat'); if (bec) bec.onclick = () => { const cc = C(); cc.active = false; save(cc); };
+  function topIdx(cc){
+    let best = 0, bi = -Infinity;
+    cc.entries.forEach((e, i) => { if ((e.init || 0) > bi){ bi = e.init || 0; best = i; } });
+    return best;
+  }
+  $('#btnAddFromMap').onclick = () => {
+    const m = activeMap(); if (!m){ toast('Activa un mapa primero', true); return; }
+    const cc = C();
+    gameTokens(m.id).forEach(t => {
+      if (!cc.entries.some(e => e.tokenId === t.id))
+        cc.entries.push({ id: uuid(), tokenId: t.id, name: t.name, init: 0, hp: t.hp, hpMax: t.hpMax, conds: [] });
+    });
+    save(cc);
+  };
+  $('#btnAddManual').onclick = () => {
+    const name = $('#addManualName').value.trim();
+    if (!name) return;
+    const cc = C(); cc.entries.push({ id: uuid(), name, init: 0, hp: null, hpMax: null, conds: [] }); save(cc);
+  };
+  $('#btnRollInit').onclick = () => {
+    const cc = C();
+    cc.entries.forEach(e => { if (!e.init) e.init = 1 + Math.floor(Math.random() * 20); });
+    save(cc); toast('Iniciativas tiradas (d20)');
+  };
+  $('#btnClearInit').onclick = () => { save({ active: false, round: 1, turn: 0, entries: [] }); };
+  $$('.init-val').forEach(inp => inp.onchange = () => { const cc = C(); cc.entries[inp.dataset.i].init = parseInt(inp.value) || 0; save(cc); });
+  $$('.hp-adj').forEach(b => b.onclick = () => {
+    const cc = C(); const e = cc.entries[b.dataset.i];
+    e.hp = (e.hp || 0) + parseInt(b.dataset.d); save(cc);
+    if (e.tokenId && S.tokens[e.tokenId]) DB.doc('tokens/' + e.tokenId).update({ hp: e.hp }).catch(() => {});
+  });
+  $$('select.cond-add').forEach(sel => sel.onchange = () => {
+    const pick = sel.value; if (!pick) return;
+    const cc = C(); const e = cc.entries[sel.dataset.i];
+    e.conds = e.conds || []; if (!e.conds.includes(pick)) e.conds.push(pick); save(cc);
+  });
+  $$('.cond').forEach(sp => sp.onclick = () => {
+    if (!S.isDM) return;
+    const cc = C(); const e = cc.entries[sp.dataset.i];
+    e.conds = (e.conds || []).filter(x => x !== sp.dataset.c); save(cc);
+  });
+  $$('.rm-entry').forEach(b => b.onclick = () => { const cc = C(); cc.entries.splice(b.dataset.i, 1); if (cc.turn >= cc.entries.length) cc.turn = 0; save(cc); });
+}
+
+/* --- dados --- */
+function rollDice(n, faces){ const r = []; for (let i = 0; i < n; i++) r.push(1 + Math.floor(Math.random() * faces)); return r; }
+function parseFormula(f){
+  f = (f || '').replace(/\s/g, '').toLowerCase();
+  if (!f || !/^[0-9d+\-]+$/.test(f)) return null;
+  const parts = f.match(/[+-]?[^+-]+/g); if (!parts) return null;
+  let total = 0; const detail = [];
+  for (const part of parts){
+    const sign = part.startsWith('-') ? -1 : 1;
+    const body = part.replace(/^[+-]/, '');
+    const dm = body.match(/^(\d*)d(\d+)$/);
+    if (dm){
+      const n = clamp(parseInt(dm[1] || '1'), 1, 100), faces = clamp(parseInt(dm[2]), 2, 1000);
+      const rolls = rollDice(n, faces);
+      total += sign * rolls.reduce((a, b) => a + b, 0);
+      detail.push((sign < 0 ? '−' : '') + n + 'd' + faces + ' [' + rolls.join(', ') + ']');
+    } else if (/^\d+$/.test(body)){
+      total += sign * parseInt(body);
+      detail.push((sign < 0 ? '−' : '+') + body);
+    } else return null;
+  }
+  return { total, detail: detail.join('  ') };
+}
+function publishRoll(formula, res, priv){
+  const doc = { ts: Date.now(), uid: S.uid, who: myName(), gameId: S.gameId, formula, total: res.total, detail: res.detail, priv: !!priv };
+  DB.doc('rolls/' + uuid()).set(doc).catch(e => toast('No se pudo publicar la tirada: ' + (e.message || e), true));
+}
+function renderDicePanel(p){
+  let html = '<div class="dice-grid">' +
+    ['d4','d6','d8','d10','d12','d20','d100'].map(d => '<button class="qd" data-d="' + d + '">' + d + '</button>').join('') +
+    '<button id="d20adv" title="2d20, se queda el mayor">VENT</button></div>' +
+    '<div class="row"><button id="d20dis" class="small" style="flex:1" title="2d20, se queda el menor">d20 desventaja</button>' +
+    '<label class="row" style="gap:4px"><input type="checkbox" id="rollPriv" style="width:auto"> oculta</label></div>' +
+    '<div class="row" style="margin-top:8px"><input id="formula" class="grow" placeholder="2d6+3, 1d8+1d6+2…"><button class="primary" id="btnRoll">Tirar</button></div>' +
+    '<div class="row" style="margin-top:8px"><input id="chatMsg" class="grow" placeholder="Mensaje al grupo…"><button id="btnMsg">💬</button></div>' +
+    '<div class="section-title">Registro</div><div id="log">';
+  S.rolls.filter(r => (r.gameId || null) === (S.gameId || null)).forEach(r => {
+    const mine = r.uid === S.uid;
+    if (r.priv && !mine && !S.isDM) return;
+    const who = esc(r.who || 'Aventurero') + (mine ? ' (tú)' : '');
+    if (r.msg != null){
+      html += '<div class="roll-entry"><span class="who">' + who + '</span><div>' + esc(r.msg) + '</div></div>';
+    } else {
+      html += '<div class="roll-entry' + (r.priv ? ' priv' : '') + '"><span class="total">' + r.total + '</span><span class="who">' + who + (r.priv ? ' 🤫' : '') + '</span>' +
+        '<div class="detail">' + esc(r.formula) + ' → ' + esc(r.detail || '') + '</div></div>';
+    }
+  });
+  html += '</div>';
+  p.innerHTML = html;
+  const doRoll = f => {
+    const res = parseFormula(f);
+    if (!res){ toast('Fórmula no válida. Ej: 2d6+3', true); return; }
+    publishRoll(f, res, $('#rollPriv').checked);
+  };
+  $$('.qd').forEach(b => b.onclick = () => doRoll('1' + b.dataset.d));
+  $('#btnRoll').onclick = () => doRoll($('#formula').value);
+  $('#formula').addEventListener('keydown', e => { if (e.key === 'Enter') doRoll($('#formula').value); });
+  $('#d20adv').onclick = () => {
+    const r = rollDice(2, 20); const best = Math.max(r[0], r[1]);
+    publishRoll('d20 ventaja', { total: best, detail: '[' + r.join(', ') + '] → mayor' }, $('#rollPriv').checked);
+  };
+  $('#d20dis').onclick = () => {
+    const r = rollDice(2, 20); const worst = Math.min(r[0], r[1]);
+    publishRoll('d20 desventaja', { total: worst, detail: '[' + r.join(', ') + '] → menor' }, $('#rollPriv').checked);
+  };
+  $('#btnMsg').onclick = sendMsg;
+  $('#chatMsg').addEventListener('keydown', e => { if (e.key === 'Enter') sendMsg(); });
+  function sendMsg(){
+    const v = $('#chatMsg').value.trim(); if (!v) return;
+    $('#chatMsg').value = '';
+    DB.doc('rolls/' + uuid()).set({ ts: Date.now(), uid: S.uid, who: myName(), gameId: S.gameId, msg: v }).catch(() => {});
+  }
+}
+
+/* ============ importador ============ */
+function openImport(){
+  $('#importModal').classList.add('open');
+  $('#importSummary').style.display = 'none';
+  $('#importCloseRow').style.display = '';
+  S.pendingImport = null;
+}
+$('#impClose').onclick = () => $('#importModal').classList.remove('open');
+$('#impCancel').onclick = () => { $('#importSummary').style.display = 'none'; $('#importCloseRow').style.display = ''; S.pendingImport = null; };
+$('#emptyImportBtn').onclick = openImport;
+const dz = $('#dropZone');
+dz.onclick = () => $('#fileInput').click();
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('over'); handleFiles([...e.dataTransfer.files]); });
+$('#fileInput').onchange = e => handleFiles([...e.target.files]);
+
+async function handleFiles(files){
+  if (!files.length) return;
+  let jsonFile = null, mediaFile = null;
+  for (const f of files){
+    const n = f.name.toLowerCase();
+    if (n.endsWith('.json') || n.endsWith('.dd2vtt') || n.endsWith('.uvtt') || n.endsWith('.df2vtt')) jsonFile = f;
+    else if (f.type.startsWith('image/') || f.type.startsWith('video/')) mediaFile = f;
+    else if (n.endsWith('.webm') || n.endsWith('.mp4')) mediaFile = f;
+  }
+  let parsed = { name: 'Mapa', grid: 70, walls: [], doorStates: {}, needsGrid: true };
+  let mediaBlob = mediaFile, mediaType = mediaFile ? (mediaFile.type.startsWith('video') || /\.(mp4|webm)$/i.test(mediaFile.name) ? 'video' : 'image') : null;
+  if (jsonFile){
+    let j;
+    try { j = JSON.parse(await jsonFile.text()); }
+    catch(e){ toast('El JSON no se pudo leer: ' + e.message, true); return; }
+    try {
+      if (j && j.resolution && j.resolution.pixels_per_grid != null){
+        parsed = parseUVTT(j);
+        if (!mediaBlob && parsed._imageB64){
+          mediaBlob = b64toBlob(parsed._imageB64); mediaType = 'image';
+        }
+      } else if (j && (Array.isArray(j.walls) || j.grid != null || j.width != null)){
+        parsed = parseFoundry(j);
+      } else { toast('JSON no reconocido: usa el export de Foundry o Universal VTT', true); return; }
+    } catch(e){ toast('Error al interpretar el mapa: ' + e.message, true); return; }
+    parsed.name = parsed.name || jsonFile.name.replace(/\.[^.]+$/, '');
+  } else if (mediaFile){
+    parsed.name = mediaFile.name.replace(/\.[^.]+$/, '');
+  } else {
+    toast('Selecciona el JSON del mapa y/o su imagen', true); return;
+  }
+  if (!mediaBlob){
+    toast('Falta la imagen o el vídeo del mapa: selecciónalos junto al JSON', true); return;
+  }
+  const dims = await mediaDims(mediaBlob, mediaType);
+  S.pendingImport = { parsed, mediaBlob, mediaType, w: dims.w, h: dims.h };
+  $('#impName').value = parsed.name;
+  $('#impGrid').value = parsed.grid || 70;
+  $('#impOffX').value = 0; $('#impOffY').value = 0;
+  $('#impGridRow').style.display = parsed.needsGrid ? 'flex' : 'none';
+  $('#importInfo').innerHTML = '<b>' + esc(parsed.name) + '</b><div class="mini">' +
+    (parsed.source || 'imagen suelta') + ' · ' + dims.w + '×' + dims.h + 'px · ' +
+    parsed.walls.length + ' muros · ' + parsed.walls.filter(w => w.door).length + ' puertas · rejilla ' + (parsed.grid || '¿?') + 'px' +
+    (mediaType === 'video' ? ' · 🎬 vídeo' : '') + '</div>';
+  $('#importSummary').style.display = '';
+  $('#importCloseRow').style.display = 'none';
+  $('#impProgress').textContent = '';
+}
+function b64toBlob(b64){
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  let mime = 'image/png';
+  if (arr[0] === 0xFF && arr[1] === 0xD8) mime = 'image/jpeg';
+  if (arr[8] === 0x57 && arr[9] === 0x45) mime = 'image/webp';
+  return new Blob([arr], { type: mime });
+}
+function mediaDims(blob, type){
+  return new Promise(res => {
+    const url = URL.createObjectURL(blob);
+    if (type === 'video'){
+      const v = document.createElement('video');
+      v.onloadedmetadata = () => { res({ w: v.videoWidth, h: v.videoHeight }); URL.revokeObjectURL(url); };
+      v.onerror = () => res({ w: 0, h: 0 });
+      v.src = url;
+    } else {
+      const img = new Image();
+      img.onload = () => { res({ w: img.naturalWidth, h: img.naturalHeight }); URL.revokeObjectURL(url); };
+      img.onerror = () => res({ w: 0, h: 0 });
+      img.src = url;
+    }
+  });
+}
+function parseFoundry(j){
+  const grid = (j.grid && typeof j.grid === 'object') ? (j.grid.size || 100) : (j.grid || j.gridSize || 100);
+  const padding = (j.padding != null) ? j.padding : 0;
+  let offX = 0, offY = 0;
+  if (padding > 0 && j.width && j.height){
+    offX = Math.ceil(j.width * padding / grid) * grid;
+    offY = Math.ceil(j.height * padding / grid) * grid;
+  }
+  const doorStates = {};
+  const walls = (j.walls || []).map((w, i) => {
+    const c = w.c || [w.x1, w.y1, w.x2, w.y2];
+    const sightRaw = (w.sight != null) ? w.sight : ((w.sense != null) ? w.sense : 20);
+    if (w.door && (w.ds === 1)) doorStates[i] = true;
+    return { x1: c[0] - offX, y1: c[1] - offY, x2: c[2] - offX, y2: c[3] - offY, door: w.door ? 1 : 0, sight: sightRaw === 0 ? 0 : 1 };
+  });
+  return { name: j.name || 'Mapa Foundry', grid, walls, doorStates, needsGrid: false, source: 'Export de Foundry (Dungeon Alchemist)' };
+}
+function parseUVTT(j){
+  const ppg = j.resolution.pixels_per_grid || 70;
+  const origin = (j.resolution.map_origin) || { x: 0, y: 0 };
+  const walls = [];
+  const addPoly = line => {
+    for (let i = 0; i < line.length - 1; i++){
+      walls.push({
+        x1: (line[i].x - origin.x) * ppg, y1: (line[i].y - origin.y) * ppg,
+        x2: (line[i + 1].x - origin.x) * ppg, y2: (line[i + 1].y - origin.y) * ppg,
+        door: 0, sight: 1
+      });
+    }
+  };
+  (j.line_of_sight || []).forEach(addPoly);
+  (j.objects_line_of_sight || []).forEach(addPoly);
+  const doorStates = {};
+  (j.portals || []).forEach(p => {
+    const b = p.bounds || [];
+    for (let i = 0; i < b.length - 1; i++){
+      const idx = walls.length;
+      walls.push({
+        x1: (b[i].x - origin.x) * ppg, y1: (b[i].y - origin.y) * ppg,
+        x2: (b[i + 1].x - origin.x) * ppg, y2: (b[i + 1].y - origin.y) * ppg,
+        door: 1, sight: 1
+      });
+      if (p.closed === false) doorStates[idx] = true;
+    }
+  });
+  return { name: j.name || 'Mapa UVTT', grid: ppg, walls, doorStates, needsGrid: false, source: 'Universal VTT', _imageB64: j.image || null };
+}
+$('#impCreate').onclick = async () => {
+  const pi = S.pendingImport; if (!pi) return;
+  const btn = $('#impCreate'); btn.disabled = true;
+  const prog = $('#impProgress');
+  try {
+    let assetUrl = null;
+    if (S.localMode){
+      assetUrl = URL.createObjectURL(pi.mediaBlob);
+    } else {
+      prog.textContent = 'Subiendo mapa (' + Math.round(pi.mediaBlob.size / 1048576 * 10) / 10 + ' MB)…';
+      assetUrl = (await uploadAsset(pi.mediaBlob)).url;
+    }
+    prog.textContent = 'Creando mapa…';
+    const id = uuid();
+    const doc = {
+      name: $('#impName').value.trim() || pi.parsed.name,
+      ownerId: S.uid,
+      assetUrl, mediaType: pi.mediaType,
+      w: pi.w, h: pi.h,
+      grid: parseInt($('#impGrid').value) || pi.parsed.grid || 70,
+      gridOffX: parseInt($('#impOffX').value) || 0,
+      gridOffY: parseInt($('#impOffY').value) || 0,
+      wallOffX: 0, wallOffY: 0,
+      walls: pi.parsed.walls, doorStates: pi.parsed.doorStates || {},
+      fog: pi.parsed.walls.length ? true : false,
+      defaultVision: 12, showGrid: true, createdAt: Date.now()
+    };
+    await DB.doc('maps/' + id).set(doc);
+    saveGame({ activeMapId: id });
+    $('#importModal').classList.remove('open');
+    toast('Mapa «' + doc.name + '» importado' + (doc.walls.length ? ' con ' + doc.walls.length + ' muros' : ''));
+  } catch(e){
+    toast('Error al importar: ' + (e && e.message ? e.message : e), true);
+  }
+  btn.disabled = false; prog.textContent = '';
+};
+
+/* ============ inicial ============ */
+resizeCanvas();
+renderPanel();
+</script>
+</body>
+</html>
