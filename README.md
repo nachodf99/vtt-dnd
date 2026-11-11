@@ -68,7 +68,10 @@ Copia `config.local.example.js` como `config.local.js` con las claves del proyec
 - El DM pulsa 📱 para mostrar un **QR** en la esquina del mapa (también en el proyector). Los jugadores lo escanean y entran en modo móvil.
 - Cada jugador elige su PJ y ve su **ficha** (imagen, clase, raza, PV, CA, ataque, alcance) e **inventario** (5 casillas por defecto, el DM las amplía).
 - Con la ronda abierta (pestaña ⚔ Iniciativa), cada jugador hace **una** acción: 🎲 Movimiento (tira su dado y toca una casilla iluminada), ⚔ Atacar (enemigos a la vista y a su alcance; d20 + ataque contra la CA) o ⏭ Pasar. El DM pasa de ronda.
-- Las reglas se validan en el servidor: `supabase/rounds.sql` (ejecutar en cada proyecto antes de promover el código).
+- **Ataques por clase** (12 clases × 4-5 ataques) que se desbloquean por nivel; catálogo en la tabla `attacks`.
+- **Experiencia**: impacto +10 XP, fallo +2 XP; al matar un monstruo su XP (por defecto 5 × PV máx, mín. 20) se reparte entre el grupo. Niveles: 100 / 300 / 600 / 1000 / 1500 / 2100 / 2800 / 3600 / 4500 XP. Subir de nivel da PV según la clase y +1 al ataque en los niveles 5 y 9.
+- **Monstruos**: a 0 PV desaparecen. Son defensivos: contraatacan si sobreviven y el PJ está a su alcance, y atacan al PJ que termina su movimiento a su alcance y con línea de visión. Los ocultos no reaccionan. Un PJ a 0 PV queda inconsciente.
+- Las reglas se validan en el servidor: ejecutar `supabase/rounds.sql` y después `supabase/combat_v2.sql` en cada proyecto antes de promover el código.
 
 ## Permisos (RLS)
 

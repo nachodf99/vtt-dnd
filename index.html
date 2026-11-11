@@ -159,6 +159,13 @@ body.projector #qrBox img{width:210px; height:210px}
 .inv-edit-row input.n{flex:1; min-width:0}
 .inv-edit-row input.qn{width:52px}
 .tkPcOnly{}
+.xpbar{height:7px; background:#000; border-radius:4px; overflow:hidden; margin-top:6px}
+.xpbar i{display:block; height:100%; background:linear-gradient(90deg,#6b3f8f,#c9a227)}
+.atk-opt{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px; border:1px solid var(--line); border-radius:8px; margin-top:6px; background:#141009; cursor:pointer}
+.atk-opt.sel{border-color:var(--accent); background:#2a2112}
+.atk-opt.locked{opacity:.45; cursor:not-allowed}
+.atk-opt .meta{font-size:11px; color:var(--ink-dim)}
+.ko{color:#e07a6a; font-weight:700}
 /* Modo móvil (jugador por QR o pantalla estrecha) */
 body.phone main{flex-direction:column}
 body.phone #stage{flex:none; height:46vh}
@@ -313,10 +320,14 @@ body.phone #tabs button{padding:9px 2px; font-size:12px}
     </div>
     <div class="row">
       <div class="field"><label>CA</label><input type="number" id="tkAc" value="12" min="1" style="width:60px"></div>
-      <div class="field tkPcOnly"><label>Ataque (+)</label><input type="number" id="tkAtk" value="3" style="width:60px"></div>
-      <div class="field tkPcOnly"><label>Daño</label><input id="tkDmg" value="1d6" style="width:76px"></div>
-      <div class="field tkPcOnly"><label>Alcance</label><input type="number" id="tkRange" value="1" min="1" style="width:60px"></div>
+      <div class="field"><label>Ataque (+)</label><input type="number" id="tkAtk" value="3" style="width:60px"></div>
+      <div class="field"><label>Daño</label><input id="tkDmg" value="1d6" style="width:76px"></div>
+      <div class="field"><label>Alcance</label><input type="number" id="tkRange" value="1" min="1" style="width:60px"></div>
       <div class="field tkPcOnly"><label>Dado mov.</label><input id="tkMove" value="1d6" style="width:66px"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label id="tkXpLbl">XP</label><input type="number" id="tkXp" min="0" placeholder="auto" style="width:90px"></div>
+      <div class="mini grow" id="tkXpHint" style="align-self:center"></div>
     </div>
     <div class="card tkPcOnly" id="tkInvBox">
       <div class="row between"><b>🎒 Inventario</b><label class="row" style="gap:4px">Casillas <input type="number" id="tkSlots" value="5" min="1" max="40" style="width:56px"></label></div>
@@ -391,6 +402,7 @@ const S = {
   syncProjector: true, projectorOpen: false,
   join: new URLSearchParams(location.search).get('unirse') || null,
   phone: false, attackPick: false, invSel: null, reach: [], busy: false, tkInv: null,
+  attacks: [], atkSel: null, lastLevel: {}, lastHp: {},
   drag: null, pan: null, pings: [], peers: [],
   visPolys: [], fogDirty: true, explored: {},
   editingToken: null, pendingImport: null,
@@ -413,6 +425,9 @@ const CLASSES = {
   mago:       { n: 'Mago',       ac: 12, atk: 5, dmg: '1d10',   range: 8, move: '1d6'   },
 };
 const RACES = ['Humano','Elfo','Enano','Mediano','Gnomo','Semielfo','Semiorco','Dracónido','Tiflin'];
+const XP_LEVELS = [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500];
+function levelFor(xp){ let l = 1; for (let i = 1; i < XP_LEVELS.length; i++) if ((xp || 0) >= XP_LEVELS[i]) l = i + 1; return l; }
+function levelOf(t){ return Math.max(t.level || 1, levelFor(t.xp || 0)); }
 const ACTION_LABEL = { move: 'Movimiento', attack: 'Ataque', pass: 'Pasó turno' };
 function raceCls(t){ return [t.race, (CLASSES[t.cls] || {}).n].filter(Boolean).join(' · ') || 'Sin clase'; }
 const COLORS = ['#8c2b2b','#3d6b8f','#4e8c4a','#8a6d1d','#6b3f8f','#b4632e','#2e8f8a','#8f2e6b'];
@@ -561,6 +576,7 @@ async function getConfig(){
     }
     S.uid = session.user.id;
     DB = makeSupaDB();
+    SB.from('attacks').select('*').then(({ data }) => { S.attacks = (data || []).sort((a, b) => a.lvl - b.lvl || a.name.localeCompare(b.name)); renderPanel(); });
     if (cfg.env && cfg.env !== 'production'){
       const eb = $('#envBadge'); eb.style.display = ''; eb.textContent = '🧪 ' + (cfg.env === 'preview' ? 'PREPRODUCCIÓN' : cfg.env.toUpperCase());
       document.title = '[PRE] Mesa de Rol — VTT';
@@ -1402,9 +1418,37 @@ async function handleTap(e){
   const c = S.reach.find(c => Math.abs(p.x - c.x) <= g / 2 && Math.abs(p.y - c.y) <= g / 2);
   if (!c) return;
   S.busy = true;
-  try { await rpc('round_move_commit', { tid: ms.mine.id, nx: c.x, ny: c.y }); toast('🏃 ¡Movido! Has terminado tu acción de esta ronda.'); }
+  try {
+    const r = await rpc('round_move_commit', { tid: ms.mine.id, nx: c.x, ny: c.y });
+    toast('🏃 ¡Movido! Has terminado tu acción de esta ronda.');
+    ((r && r.reactions) || []).forEach((x, i) => setTimeout(() => toast(reactionText(x), !!x.hit), 700 * (i + 1)));
+  }
   catch(err){ toast(err.message, true); }
   S.busy = false;
+}
+function attackOptions(t){
+  const list = (S.attacks || []).filter(a => a.cls === t.cls);
+  if (!list.length) return [{ id: 'basic', name: 'Ataque básico', lvl: 1, range: t.range || 1, dmg: t.dmg || '1d6', atk_bonus: 0, descr: '' }];
+  return list;
+}
+function xpBarHtml(t){
+  const xp = t.xp || 0, l = levelOf(t);
+  if (l >= 10) return '<div class="mini" style="margin-top:8px">⭐ ' + xp + ' XP · nivel máximo</div>';
+  const a = XP_LEVELS[l - 1], b = XP_LEVELS[l];
+  const pct = clamp((xp - a) / (b - a) * 100, 0, 100);
+  return '<div class="row between" style="margin-top:8px"><span class="mini">⭐ ' + xp + ' XP</span><span class="mini">nivel ' + (l + 1) + ' a ' + b + '</span></div><div class="xpbar"><i style="width:' + pct + '%"></i></div>';
+}
+function reactionText(x){
+  return '👹 ' + x.monster + ' ' + (x.reason === 'contraataque' ? 'contraataca' : 'te ve y ataca') + ': ' +
+    (x.crit ? '¡CRÍTICO! ' + x.dmg + ' de daño' : x.hit ? x.dmg + ' de daño' : 'falla') +
+    (x.hit ? ' (te quedan ' + x.hp + ' PV)' : '') + (x.hit && x.hp <= 0 ? ' 💀' : '');
+}
+function dmSetHp(t, hp){
+  if (t.type === 'monster' && hp <= 0){
+    DB.doc('tokens/' + t.id).delete().then(() => toast('💀 ' + t.name + ' ha muerto')).catch(e => toast(e.message || e, true));
+    return;
+  }
+  DB.doc('tokens/' + t.id).update({ hp: Math.max(0, hp) }).catch(() => {});
 }
 function avatarStyle(t){
   return t.imgUrl ? 'background-image:url(' + esc(t.imgUrl) + ')' : 'background:' + esc(t.color || '#555');
@@ -1434,12 +1478,16 @@ function renderPjPanel(p){
     (mine.hpMax > 0 ? '<div class="hpbar"><i style="width:' + hpPct + '%"></i></div>' : '') + '</div></div>' +
     '<div class="stat-row"><div class="stat"><b>' + (mine.hp || 0) + '/' + (mine.hpMax || 0) + '</b><span>PV</span></div>' +
     '<div class="stat"><b>' + (mine.ac || '—') + '</b><span>CA</span></div>' +
-    '<div class="stat"><b>' + ((mine.atk || 0) >= 0 ? '+' : '') + (mine.atk || 0) + '</b><span>' + esc(mine.dmg || '1d6') + '</span></div>' +
-    '<div class="stat"><b>' + (mine.range || 1) + '</b><span>Alcance</span></div></div>' +
+    '<div class="stat"><b>' + levelOf(mine) + '</b><span>Nivel</span></div>' +
+    '<div class="stat"><b>' + ((mine.atk || 0) >= 0 ? '+' : '') + (mine.atk || 0) + '</b><span>Ataque</span></div></div>' +
+    xpBarHtml(mine) +
     '<div class="row between" style="margin-top:8px"><span class="mini">Movimiento: ' + esc(mine.moveDie || '1d6') + '</span><button class="small" id="btnRelease">Cambiar de PJ</button></div></div>';
   // Ronda
+  const ko = mine.hpMax > 0 && (mine.hp || 0) <= 0;
   html += '<div class="section-title">Tu turno</div><div class="card">';
-  if (!rd.active){
+  if (ko){
+    html += '<div class="ko">💀 Estás inconsciente.</div><div class="muted" style="margin-top:4px">No puedes actuar hasta que alguien te cure o el DM te devuelva PV.</div>';
+  } else if (!rd.active){
     html += '<div class="muted">⏳ Esperando a que el DM abra la ronda.</div>';
   } else {
     const done = (rd.done || {})[mine.id], pend = (rd.pending || {})[mine.id];
@@ -1447,15 +1495,26 @@ function renderPjPanel(p){
     if (done) html += '<div class="muted" style="margin-top:6px">Ya has actuado. Espera a que el DM pase de ronda.</div>';
     else if (pend) html += '<div style="margin-top:8px">🎲 Has sacado <b style="font-size:20px;color:var(--accent)">' + pend + '</b> casillas.<br><b>Toca una casilla iluminada del mapa</b> para moverte.</div>';
     html += '<div class="act-grid">' +
-      '<button id="actMove"' + (done || pend ? ' disabled' : '') + '><span class="ic">🎲</span>Movimiento</button>' +
-      '<button id="actAtk"' + (done || pend ? ' disabled' : '') + (S.attackPick ? ' class="primary"' : '') + '><span class="ic">⚔</span>Atacar</button>' +
-      '<button id="actPass"' + (done ? ' disabled' : '') + '><span class="ic">⏭</span>Pasar</button></div>';
+      '<button id="actMove"' + (done || pend || ko ? ' disabled' : '') + '><span class="ic">🎲</span>Movimiento</button>' +
+      '<button id="actAtk"' + (done || pend || ko ? ' disabled' : '') + (S.attackPick ? ' class="primary"' : '') + '><span class="ic">⚔</span>Atacar</button>' +
+      '<button id="actPass"' + (done || ko ? ' disabled' : '') + '><span class="ic">⏭</span>Pasar</button></div>';
     if (S.attackPick && !done && !pend){
-      const rng = mine.range || 1;
+      const opts = attackOptions(mine);
+      const lvl = levelOf(mine);
+      if (!S.atkSel || !opts.some(o => o.id === S.atkSel && o.lvl <= lvl)) S.atkSel = (opts.find(o => o.lvl <= lvl) || {}).id || null;
+      html += '<div class="mini" style="margin-top:10px">1. Elige ataque:</div>';
+      opts.forEach(o => {
+        const locked = o.lvl > lvl;
+        html += '<div class="atk-opt' + (o.id === S.atkSel ? ' sel' : '') + (locked ? ' locked' : '') + '" data-aid="' + esc(o.id) + '"' + (locked ? ' data-locked="1"' : '') + '>' +
+          '<div><b>' + (locked ? '🔒 ' : '') + esc(o.name) + '</b><div class="meta">' + esc(o.dmg) + ' · alcance ' + o.range + (o.atk_bonus ? ' · ' + (o.atk_bonus > 0 ? '+' : '') + o.atk_bonus + ' al ataque' : '') + (o.descr ? ' · ' + esc(o.descr) : '') + '</div></div>' +
+          '<span class="mini">' + (locked ? 'Nivel ' + o.lvl : (o.id === S.atkSel ? '✓' : '')) + '</span></div>';
+      });
+      const selA = opts.find(o => o.id === S.atkSel) || { range: mine.range || 1, name: 'Ataque básico' };
+      const rng = selA.range || 1;
       const tg = gameTokens(m.id).filter(t => t.type === 'monster' && !t.hidden && tokenVisibleToPlayers(t))
         .map(t => ({ t, d: Math.round(Math.max(Math.abs(t.x - mine.x), Math.abs(t.y - mine.y)) / g) }))
         .sort((a, b) => a.d - b.d);
-      html += '<div class="mini" style="margin-top:8px">Enemigos a la vista (tu alcance: ' + rng + ' casilla' + (rng > 1 ? 's' : '') + '):</div>';
+      html += '<div class="mini" style="margin-top:10px">2. Elige objetivo (alcance de ' + esc(selA.name) + ': ' + rng + ' casilla' + (rng > 1 ? 's' : '') + '):</div>';
       if (!tg.length) html += '<div class="muted" style="margin-top:4px">No ves ningún enemigo.</div>';
       tg.forEach(({ t, d }) => {
         const ok = d <= rng;
@@ -1495,17 +1554,32 @@ function renderPjPanel(p){
     } catch(e){ toast(e.message, true); am.disabled = false; }
   };
   const aa = $('#actAtk'); if (aa) aa.onclick = () => { S.attackPick = !S.attackPick; renderPanel(); };
+  $$('.atk-opt').forEach(el => el.onclick = () => {
+    if (el.dataset.locked){ toast('🔒 Se desbloquea al subir de nivel'); return; }
+    S.atkSel = el.dataset.aid; renderPanel();
+  });
+  const lv = levelOf(mine), prevL = S.lastLevel[mine.id];
+  if (prevL && lv > prevL){
+    const nuevos = attackOptions(mine).filter(o => o.lvl > prevL && o.lvl <= lv).map(o => o.name);
+    toast('⬆ ¡' + mine.name + ' sube a nivel ' + lv + '!' + (nuevos.length ? ' Nuevo: ' + nuevos.join(', ') : ''));
+  }
+  S.lastLevel[mine.id] = lv;
+  const prevHp = S.lastHp[mine.id];
+  if (prevHp != null && (mine.hp || 0) < prevHp && (mine.hp || 0) <= 0 && mine.hpMax > 0) toast('💀 ¡Has caído inconsciente!', true);
+  S.lastHp[mine.id] = mine.hp || 0;
   const ap = $('#actPass'); if (ap) ap.onclick = () => armConfirm(ap, async () => {
     try { await rpc('round_pass', { tid: mine.id }); toast('⏭ Has pasado el turno'); } catch(e){ toast(e.message, true); }
   });
   $$('.atk-go').forEach(b => b.onclick = async () => {
     b.disabled = true;
     try {
-      const r = await rpc('round_attack', { tid: mine.id, target: b.dataset.tid });
+      const r = await rpc('round_attack', { tid: mine.id, target: b.dataset.tid, attack_id: S.atkSel || 'basic' });
       S.attackPick = false;
-      toast(r.crit ? '💥 ¡CRÍTICO! ' + r.dmg + ' de daño a ' + r.target
-        : r.hit ? '⚔ ¡Impacto! (' + r.d20 + '+' + r.atk + ' vs CA ' + r.ac + ') ' + r.dmg + ' de daño a ' + r.target
-        : '🛡 Fallo (' + r.d20 + '+' + r.atk + ' vs CA ' + r.ac + ')');
+      toast((r.crit ? '💥 ¡CRÍTICO con ' + r.attack + '! ' + r.dmg + ' de daño a ' + r.target
+        : r.hit ? '⚔ ' + r.attack + ': ¡impacto! (' + r.d20 + '+' + r.atk + ' vs CA ' + r.ac + ') ' + r.dmg + ' de daño a ' + r.target
+        : '🛡 ' + r.attack + ': fallo (' + r.d20 + '+' + r.atk + ' vs CA ' + r.ac + ')') + ' · +' + r.xp + ' XP');
+      if (r.dead) setTimeout(() => toast('💀 ¡' + r.target + ' ha muerto! Su experiencia se reparte entre el grupo.'), 600);
+      if (r.counter) setTimeout(() => toast(reactionText(r.counter), !!r.counter.hit), 1200);
     } catch(e){ toast(e.message, true); b.disabled = false; }
   });
   $$('.slot.full').forEach(el => el.onclick = () => { S.invSel = (S.invSel === el.dataset.iid) ? null : el.dataset.iid; renderPanel(); });
@@ -1586,7 +1660,16 @@ function askName(cb){
 function toggleTkFields(){
   const pc = $('#tkType').value === 'pc';
   $$('.tkPcOnly').forEach(el => el.style.display = pc ? '' : 'none');
+  $('#tkXpLbl').textContent = pc ? 'XP acumulada' : 'XP al morir';
+  updateXpHint();
 }
+function updateXpHint(){
+  const pc = $('#tkType').value === 'pc';
+  const v = $('#tkXp').value;
+  if (pc){ const xp = parseInt(v) || 0, l = levelFor(xp); $('#tkXpHint').textContent = 'Nivel ' + l + (l < 10 ? ' · siguiente a ' + XP_LEVELS[l] + ' XP' : ' (máximo)'); }
+  else $('#tkXpHint').textContent = v === '' ? 'Vacío = automático (5 × PV máx, mín. 20). Se reparte entre el grupo.' : 'Se reparte entre el grupo al morir.';
+}
+$('#tkXp').addEventListener('input', updateXpHint);
 $('#tkType').addEventListener('change', toggleTkFields);
 $('#tkCls').addEventListener('change', () => {
   const c = CLASSES[$('#tkCls').value]; if (!c) return;
@@ -1822,7 +1905,8 @@ function renderTokensPanel(p){
       html += '<div class="card" data-tid="' + t.id + '"><div class="row between">' +
         '<div class="row grow" style="cursor:pointer">' + dot +
         '<div class="grow"><b>' + esc(t.name) + '</b>' + (t.hidden ? ' <span class="mini">(oculto)</span>' : '') +
-        '<div class="mini">' + (t.type === 'pc' ? esc(raceCls(t)) + ' · ' : '') + 'PV ' + (t.hp || 0) + '/' + (t.hpMax || 0) + (S.isDM && t.ac ? ' · CA ' + t.ac : '') +
+        '<div class="mini">' + (t.type === 'pc' ? esc(raceCls(t)) + ' · Nv ' + levelOf(t) + ' · ' : '') + 'PV ' + (t.hp || 0) + '/' + (t.hpMax || 0) + (S.isDM && t.ac ? ' · CA ' + t.ac : '') +
+        (S.isDM && t.type === 'monster' ? ' · ⚔ +' + (t.atk == null ? 3 : t.atk) + ' ' + esc(t.dmg || '1d6+1') + ' a ' + (t.range || 1) : '') +
         (t.type === 'pc' ? (t.ownerId ? ' · 🎮 ' + esc(t.ownerId === S.uid ? 'tú' : (t.ownerName || 'Jugador')) : ' · <i>libre</i>') : '') + '</div></div></div>' +
         '<div class="row">' +
         (S.isDM ? '<button class="small t-hp" data-d="-1" data-tid="' + t.id + '">−</button><button class="small t-hp" data-d="1" data-tid="' + t.id + '">＋</button>' +
@@ -1873,7 +1957,7 @@ function bindTokenPanel(){
   });
   $$('.t-hp').forEach(b => b.onclick = () => {
     const t = S.tokens[b.dataset.tid];
-    DB.doc('tokens/' + t.id).update({ hp: (t.hp || 0) + parseInt(b.dataset.d) }).catch(() => {});
+    dmSetHp(t, (t.hp || 0) + parseInt(b.dataset.d));
   });
   $$('.card[data-tid]').forEach(el => {
     const rowEl = el.querySelector('.row.grow');
@@ -1908,6 +1992,7 @@ function openTokenModal(id){
   $('#tkAc').value = t ? (t.ac || 12) : 12;
   $('#tkAtk').value = t && t.atk != null ? t.atk : 3;
   $('#tkDmg').value = t ? (t.dmg || '1d6') : '1d6';
+  $('#tkXp').value = t && t.xp != null ? t.xp : '';
   $('#tkRange').value = t ? (t.range || 1) : 1;
   $('#tkMove').value = t ? (t.moveDie || '1d6') : '1d6';
   S.tkInv = JSON.parse(JSON.stringify((t && t.inventory) || { slots: 5, items: [] }));
@@ -1951,6 +2036,12 @@ $('#tkSave').onclick = async () => {
       x: center.x, y: center.y, createdAt: old ? (old.createdAt || Date.now()) : Date.now()
     };
     t.ac = Math.max(1, parseInt($('#tkAc').value) || 12);
+    t.atk = parseInt($('#tkAtk').value) || 0;
+    t.dmg = ($('#tkDmg').value || '').trim() || '1d6';
+    t.range = Math.max(1, parseInt($('#tkRange').value) || 1);
+    const xpv = $('#tkXp').value;
+    if (t.type === 'pc'){ t.xp = Math.max(0, parseInt(xpv) || 0); t.level = Math.max(levelFor(t.xp), old && old.xp === t.xp ? (old.level || 1) : 1); }
+    else if (xpv !== '') t.xp = Math.max(0, parseInt(xpv) || 0);
     if (t.type === 'pc'){
       const inv = { slots: Math.max(1, parseInt($('#tkSlots').value) || 5), items: (S.tkInv.items || []).filter(i => (i.name || '').trim()) };
       if (inv.items.length > inv.slots){ toast('Hay ' + inv.items.length + ' objetos y solo ' + inv.slots + ' casillas: amplía el inventario', true); btn.disabled = false; return; }
@@ -2083,7 +2174,7 @@ function renderInitPanel(p){
   $$('.hp-adj').forEach(b => b.onclick = () => {
     const cc = C(); const e = cc.entries[b.dataset.i];
     e.hp = (e.hp || 0) + parseInt(b.dataset.d); save(cc);
-    if (e.tokenId && S.tokens[e.tokenId]) DB.doc('tokens/' + e.tokenId).update({ hp: e.hp }).catch(() => {});
+    if (e.tokenId && S.tokens[e.tokenId]) dmSetHp(S.tokens[e.tokenId], e.hp);
   });
   $$('select.cond-add').forEach(sel => sel.onchange = () => {
     const pick = sel.value; if (!pick) return;
