@@ -63,6 +63,13 @@ Copia `config.local.example.js` como `config.local.js` con las claves del proyec
 3. El DM importa el mapa (pestaña 🗺): el JSON del export **Foundry** de Dungeon Alchemist junto a su imagen/vídeo, o un `.dd2vtt`.
 4. Solo el DM mueve tokens, abre puertas 🔒/🚪 y lleva la iniciativa; los jugadores ven su visión compartida, tiran dados, chatean y señalan con doble clic.
 
+## Rondas libres (en `develop`)
+
+- El DM pulsa 📱 para mostrar un **QR** en la esquina del mapa (también en el proyector). Los jugadores lo escanean y entran en modo móvil.
+- Cada jugador elige su PJ y ve su **ficha** (imagen, clase, raza, PV, CA, ataque, alcance) e **inventario** (5 casillas por defecto, el DM las amplía).
+- Con la ronda abierta (pestaña ⚔ Iniciativa), cada jugador hace **una** acción: 🎲 Movimiento (tira su dado y toca una casilla iluminada), ⚔ Atacar (enemigos a la vista y a su alcance; d20 + ataque contra la CA) o ⏭ Pasar. El DM pasa de ronda.
+- Las reglas se validan en el servidor: `supabase/rounds.sql` (ejecutar en cada proyecto antes de promover el código).
+
 ## Permisos (RLS)
 
 - **Identidad**: sesión anónima de Supabase, persistida en el navegador. Quien crea una partida es su DM (no borres los datos del sitio en el navegador del DM o perderá esa identidad).

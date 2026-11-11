@@ -129,6 +129,45 @@ body.projector #projFs{display:block}
 body.projector.idle #projFs{opacity:0; pointer-events:none}
 body.projector.idle{cursor:none}
 #btnSync.on{border-color:var(--accent); color:var(--accent)}
+/* QR de acceso */
+#qrBox{display:none; position:absolute; left:12px; bottom:12px; z-index:14; background:#fff; color:#111; border-radius:12px; padding:10px; text-align:center; box-shadow:0 4px 20px rgba(0,0,0,.6)}
+#qrBox img{display:block; width:150px; height:150px; image-rendering:pixelated}
+#qrBox .t{font:700 13px Inter,sans-serif; margin-top:6px}
+#qrBox .c{font:600 11px Inter,sans-serif; color:#555; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+body.projector #qrBox img{width:210px; height:210px}
+#btnQR.on{border-color:var(--accent)}
+/* Ficha de personaje */
+.sheet-head{display:flex; gap:12px; align-items:center}
+.sheet-av{width:64px; height:64px; border-radius:50%; background:#333 center/cover; border:3px solid var(--accent); flex-shrink:0; display:flex; align-items:center; justify-content:center; font:800 26px Cinzel,serif; color:#fff}
+.stat-row{display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:10px}
+.stat{background:#141009; border:1px solid var(--line); border-radius:8px; padding:6px 2px; text-align:center}
+.stat b{display:block; font-size:15px; color:#fff}
+.stat span{font-size:9.5px; color:var(--ink-dim); text-transform:uppercase; letter-spacing:.5px}
+.act-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px}
+.act-grid button{padding:14px 4px; font-size:14px; font-weight:700; display:flex; flex-direction:column; align-items:center; gap:4px}
+.act-grid button .ic{font-size:24px}
+.inv-grid{display:grid; grid-template-columns:repeat(5,1fr); gap:6px}
+.slot{aspect-ratio:1; border:1px dashed var(--line); border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10.5px; text-align:center; padding:3px; background:#141009; cursor:pointer; overflow:hidden; word-break:break-word; line-height:1.15}
+.slot.full{border-style:solid; border-color:#6e5512; background:#241b10}
+.slot .q{font-size:10px; color:var(--accent); font-weight:700}
+.slot.sel{box-shadow:0 0 0 2px var(--accent)}
+.round-pill{display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; border:1px solid var(--line)}
+.round-pill.done{border-color:var(--ok); color:#9fd49a}
+.round-pill.wait{border-color:var(--accent); color:var(--accent)}
+.tgt{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px; border:1px solid var(--line); border-radius:8px; margin-top:6px; background:#141009}
+.inv-edit-row{display:flex; gap:4px; align-items:center; margin-bottom:4px}
+.inv-edit-row input.n{flex:1; min-width:0}
+.inv-edit-row input.qn{width:52px}
+.tkPcOnly{}
+/* Modo móvil (jugador por QR o pantalla estrecha) */
+body.phone main{flex-direction:column}
+body.phone #stage{flex:none; height:46vh}
+body.phone #sidebar{position:static; transform:none; width:100%; min-width:0; flex:1; min-height:0; border-right:none; border-top:2px solid var(--line); box-shadow:none}
+body.phone #sidebarToggle{display:none !important}
+body.phone header .logo span, body.phone #peersBar{display:none}
+body.phone header{padding:6px 10px; gap:6px}
+body.phone #stageTools button{width:34px; height:34px; font-size:15px}
+body.phone #tabs button{padding:9px 2px; font-size:12px}
 @media(max-width:860px){
   #sidebar{position:absolute; left:0; top:0; bottom:0; transform:translateX(-100%); transition:transform .2s; box-shadow:4px 0 20px rgba(0,0,0,.5)}
   #sidebar.open{transform:none}
@@ -178,6 +217,7 @@ body.projector.idle{cursor:none}
   <main>
     <div id="sidebar">
       <div id="tabs">
+        <button data-tab="pj" id="tabPjBtn" style="display:none">🧙 Mi PJ</button>
         <button data-tab="maps" id="tabMapsBtn">🗺 Mapas</button>
         <button data-tab="tokens" class="active">♟ Tokens</button>
         <button data-tab="init">⚔ Iniciativa</button>
@@ -195,11 +235,13 @@ body.projector.idle{cursor:none}
         <button id="btnGrid" title="Mostrar/ocultar rejilla">▦</button>
         <button id="btnWalls" title="Ver muros y calibrar (DM)" style="display:none">🧱</button>
         <button id="btnFog" title="Activar/desactivar niebla (DM)" style="display:none">🌫</button>
+        <button id="btnQR" title="Mostrar QR para que los jugadores entren con el móvil" style="display:none">📱</button>
       </div>
       <div id="distLabel"></div>
+      <div id="qrBox"><img id="qrImg" alt="QR"><div class="t">📱 Escanea para jugar</div><div class="c" id="qrCode"></div></div>
       <div id="pickHint" style="display:none; position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); text-align:center; background:rgba(20,16,14,.92); border:1px solid var(--accent); border-radius:14px; padding:18px 22px; z-index:12; max-width:90%">
         <div style="font-family:Cinzel,serif; font-size:20px; color:var(--accent)">Elige tu personaje</div>
-        <div class="muted" style="margin-top:6px">En el panel ♟ Tokens, pulsa «Este es mi personaje».<br>Verás lo que ve tu PJ.</div>
+        <div class="muted" style="margin-top:6px">En la pestaña 🧙 Mi PJ, pulsa «Este es mi personaje».<br>Verás lo que ve tu PJ.</div>
       </div>
       <div id="emptyState">
         <div style="font-size:52px">🗺️</div>
@@ -265,6 +307,27 @@ body.projector.idle{cursor:none}
       <div class="field"><label>PV máximos</label><input type="number" id="tkHpMax" value="10"></div>
       <div class="field"><label>Visión (casillas, 0 = sin límite)</label><input type="number" id="tkVision" value="12" min="0"></div>
     </div>
+    <div class="row tkPcOnly">
+      <div class="field"><label>Clase</label><select id="tkCls"></select></div>
+      <div class="field"><label>Raza</label><select id="tkRace"></select></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>CA</label><input type="number" id="tkAc" value="12" min="1" style="width:60px"></div>
+      <div class="field tkPcOnly"><label>Ataque (+)</label><input type="number" id="tkAtk" value="3" style="width:60px"></div>
+      <div class="field tkPcOnly"><label>Daño</label><input id="tkDmg" value="1d6" style="width:76px"></div>
+      <div class="field tkPcOnly"><label>Alcance</label><input type="number" id="tkRange" value="1" min="1" style="width:60px"></div>
+      <div class="field tkPcOnly"><label>Dado mov.</label><input id="tkMove" value="1d6" style="width:66px"></div>
+    </div>
+    <div class="card tkPcOnly" id="tkInvBox">
+      <div class="row between"><b>🎒 Inventario</b><label class="row" style="gap:4px">Casillas <input type="number" id="tkSlots" value="5" min="1" max="40" style="width:56px"></label></div>
+      <div id="tkInvList" style="margin-top:6px"></div>
+      <div class="row" style="margin-top:4px">
+        <input id="tkInvName" class="grow" placeholder="Nuevo objeto (p. ej. Poción de curación)">
+        <input type="number" id="tkInvQty" value="1" min="1" style="width:52px">
+        <label class="row" style="gap:3px"><input type="checkbox" id="tkInvCons" style="width:auto"> consumible</label>
+        <button class="small" id="tkInvAdd">＋</button>
+      </div>
+    </div>
     <div class="row between" style="margin-top:12px">
       <button id="tkCancel">Cancelar</button>
       <div class="row">
@@ -276,8 +339,18 @@ body.projector.idle{cursor:none}
   </div>
 </div>
 
+<!-- Modal: nombre al entrar por QR -->
+<div class="modal-back" id="nameModal">
+  <div class="modal">
+    <h2>¡Bienvenido a la mesa!</h2>
+    <div class="field"><label>¿Cómo te llamas?</label><input id="nameInput" maxlength="24" placeholder="Tu nombre…" autocomplete="nickname"></div>
+    <div class="row" style="justify-content:flex-end"><button class="primary" id="nameOk">Entrar</button></div>
+  </div>
+</div>
+
 <div id="toasts"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <script src="/config.local.js" defer></script>
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
@@ -316,6 +389,8 @@ const S = {
   tab: 'tokens', showGrid: true, showWalls: false,
   projector: new URLSearchParams(location.search).get('proyector') || null,
   syncProjector: true, projectorOpen: false,
+  join: new URLSearchParams(location.search).get('unirse') || null,
+  phone: false, attackPick: false, invSel: null, reach: [], busy: false, tkInv: null,
   drag: null, pan: null, pings: [], peers: [],
   visPolys: [], fogDirty: true, explored: {},
   editingToken: null, pendingImport: null,
@@ -323,6 +398,23 @@ const S = {
 };
 const EXPLORED_SCALE = 0.25;
 const CONDS = ['Agarrado','Asustado','Aturdido','Cegado','Derribado','Encantado','Ensordecido','Envenenado','Incapacitado','Inconsciente','Invisible','Paralizado','Petrificado','Apresado','Concentración'];
+const CLASSES = {
+  guerrero:   { n: 'Guerrero',   ac: 16, atk: 5, dmg: '1d8+3',  range: 1, move: '1d6'   },
+  barbaro:    { n: 'Bárbaro',    ac: 14, atk: 5, dmg: '1d12+3', range: 1, move: '1d6+1' },
+  paladin:    { n: 'Paladín',    ac: 18, atk: 5, dmg: '1d8+3',  range: 1, move: '1d6'   },
+  monje:      { n: 'Monje',      ac: 15, atk: 5, dmg: '1d6+3',  range: 1, move: '1d8'   },
+  picaro:     { n: 'Pícaro',     ac: 14, atk: 5, dmg: '1d6+3',  range: 6, move: '1d8'   },
+  explorador: { n: 'Explorador', ac: 15, atk: 5, dmg: '1d8+3',  range: 8, move: '1d8'   },
+  clerigo:    { n: 'Clérigo',    ac: 16, atk: 4, dmg: '1d8+2',  range: 1, move: '1d6'   },
+  druida:     { n: 'Druida',     ac: 14, atk: 4, dmg: '1d8',    range: 4, move: '1d6'   },
+  bardo:      { n: 'Bardo',      ac: 13, atk: 4, dmg: '1d6+2',  range: 6, move: '1d6'   },
+  brujo:      { n: 'Brujo',      ac: 13, atk: 5, dmg: '1d10+3', range: 8, move: '1d6'   },
+  hechicero:  { n: 'Hechicero',  ac: 12, atk: 5, dmg: '1d10',   range: 8, move: '1d6'   },
+  mago:       { n: 'Mago',       ac: 12, atk: 5, dmg: '1d10',   range: 8, move: '1d6'   },
+};
+const RACES = ['Humano','Elfo','Enano','Mediano','Gnomo','Semielfo','Semiorco','Dracónido','Tiflin'];
+const ACTION_LABEL = { move: 'Movimiento', attack: 'Ataque', pass: 'Pasó turno' };
+function raceCls(t){ return [t.race, (CLASSES[t.cls] || {}).n].filter(Boolean).join(' · ') || 'Sin clase'; }
 const COLORS = ['#8c2b2b','#3d6b8f','#4e8c4a','#8a6d1d','#6b3f8f','#b4632e','#2e8f8a','#8f2e6b'];
 
 function myName(){ return (lsGet('vtt_name') || '').trim() || 'Aventurero'; }
@@ -490,6 +582,9 @@ function applyRole(){
     rb.className = 'badge' + (S.isDM ? ' dm' : '');
   }
   $('#btnViewAs').style.display = (S.isDM && S.gameId) ? '' : 'none';
+  $('#tabPjBtn').style.display = (!S.isDM && S.gameId) ? '' : 'none';
+  $('#btnQR').style.display = (S.isDM && S.gameId && !S.projector) ? '' : 'none';
+  if (S.isDM && S.tab === 'pj') selectTab('tokens');
   $('#btnProjector').style.display = (S.isDM && S.gameId && !S.projector) ? '' : 'none';
   $('#btnSync').style.display = (S.isDM && S.gameId && !S.projector && S.projectorOpen) ? '' : 'none';
   $('#btnFog').style.display = S.isDM ? '' : 'none';
@@ -587,6 +682,8 @@ function joinGame(id, silent){
   S.lobbyManual = false;
   if (S.projector){ S.viewAsPlayer = true; S.fogDirty = true; }
   else lsSet('vtt_game', { id });
+  if (!S.isDM && !S.projector) S.tab = 'pj';
+  S.attackPick = false; S.invSel = null;
   $('#lobby').classList.remove('open');
   $('#btnLeave').style.display = '';
   updateGameBadge();
@@ -594,14 +691,15 @@ function joinGame(id, silent){
   applyRole();
   syncFromGame();
   joinRoomFor(id);
-  renderPanel();
+  selectTab(S.tab);
+  updateQR();
 }
 function leaveGame(){
   S.gameId = null; S.isDM = false; S.lobbyManual = true;
   lsSet('vtt_game', null);
   if (GCH && SB){ try { SB.removeChannel(GCH); } catch(e){} }
   GCH = null; S.peers = []; renderPeers();
-  applyRole(); showLobby(); renderPanel(); needsDraw();
+  applyRole(); showLobby(); renderPanel(); needsDraw(); updateQR();
 }
 $('#btnLeave').onclick = leaveGame;
 function updateGameBadge(){
@@ -660,6 +758,13 @@ function startSubscriptions(){
     if (S.gameId && !S.games[S.gameId] && !S.localMode){
       toast('La partida ha sido cerrada por el DM'); leaveGame(); return;
     }
+    if (S.join && !S.gameId && !S.lobbyManual && !S.localMode){
+      if (S.games[S.join]){
+        if (!(lsGet('vtt_name') || '').trim()) askName(() => joinGame(S.join, true));
+        else joinGame(S.join, true);
+        return;
+      }
+    }
     if (S.projector && !S.gameId){
       if (S.games[S.projector]) joinGame(S.projector, true);
       return;
@@ -673,7 +778,7 @@ function startSubscriptions(){
       const dmNow = !!(g && g.dmId === S.uid);
       if (dmNow !== S.isDM){ S.isDM = dmNow; applyRole(); }
     }
-    updateGameBadge(); syncFromGame(); renderLobby(); renderCombatBadge(); renderPanel(); needsDraw();
+    updateGameBadge(); syncFromGame(); renderLobby(); renderCombatBadge(); renderPanel(); needsDraw(); updateQR();
   });
   DB.collection('maps').onSnapshot(snap => {
     const arr = snapDocs(snap); S.maps = {};
@@ -995,6 +1100,13 @@ function draw(){
     ctx.drawImage(fogCanvas, 0, 0, S.media.w, S.media.h);
     ctx.globalAlpha = 1;
   }
+  const ms = moveState();
+  S.reach = ms ? reachableCells(ms) : [];
+  if (S.reach.length){
+    const half = g / 2;
+    ctx.fillStyle = 'rgba(201,162,39,0.30)'; ctx.strokeStyle = 'rgba(255,214,90,0.9)'; ctx.lineWidth = 2 / S.cam.s;
+    S.reach.forEach(c => { ctx.fillRect(c.x - half + 2, c.y - half + 2, g - 4, g - 4); ctx.strokeRect(c.x - half + 2, c.y - half + 2, g - 4, g - 4); });
+  }
   toks.filter(t => t.type === 'pc' && (!t.hidden || seeAll)).forEach(t => drawToken(t, m, seeAll && t.hidden));
   if (S.isDM && S.showWalls){
     ctx.lineWidth = 3 / S.cam.s;
@@ -1205,6 +1317,7 @@ function endPointer(e){
       DB.doc('tokens/' + t.id).update({ x: sn.x, y: sn.y }).catch(err => toast('No se pudo mover el token: ' + (err.message || err), true));
     } else needsDraw();
   }
+  if (S.pan && e.type === 'pointerup' && Math.hypot(e.clientX - S.pan.sx, e.clientY - S.pan.sy) < 8) handleTap(e);
   S.pan = null;
 }
 cv.addEventListener('pointerup', endPointer);
@@ -1242,6 +1355,269 @@ $('#btnViewAs').onclick = () => {
   S.fogDirty = true; needsDraw();
 };
 $('#sidebarToggle').onclick = () => $('#sidebar').classList.toggle('open');
+
+/* ============ rondas libres, ficha de PJ, inventario, QR ============ */
+async function rpc(name, args){
+  if (S.localMode || !SB) throw new Error('Necesitas conexión con el servidor para esta acción');
+  const { data, error } = await SB.rpc(name, args);
+  if (error) throw new Error(error.message);
+  return data;
+}
+function moveState(){
+  const m = activeMap(); if (!m || S.isDM || S.projector) return null;
+  const mine = myToken(m.id); if (!mine) return null;
+  const rd = (gameDoc() || {}).round || {};
+  if (!rd.active || (rd.done || {})[mine.id]) return null;
+  const r = (rd.pending || {})[mine.id]; if (!r) return null;
+  return { m, mine, r };
+}
+function segCross(ax, ay, bx, by, s){
+  const d = (bx - ax) * (s.y2 - s.y1) - (by - ay) * (s.x2 - s.x1);
+  if (Math.abs(d) < 1e-9) return false;
+  const t = ((s.x1 - ax) * (s.y2 - s.y1) - (s.y1 - ay) * (s.x2 - s.x1)) / d;
+  const u = ((s.x1 - ax) * (by - ay) - (s.y1 - ay) * (bx - ax)) / d;
+  return t > 0.001 && t < 0.999 && u > -0.001 && u < 1.001;
+}
+function reachableCells(ms){
+  const g = gridOf(ms.m), r = ms.r, me = ms.mine;
+  const segs = wallSegs(ms.m, false);
+  const occ = gameTokens(ms.m.id).filter(t => t.id !== me.id && !(t.hidden && t.type === 'monster'));
+  const out = [];
+  for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++){
+    if (!dx && !dy) continue;
+    const x = me.x + dx * g, y = me.y + dy * g;
+    if (x < 0 || y < 0 || x > (S.media.w || 1e9) || y > (S.media.h || 1e9)) continue;
+    if (occ.some(t => Math.abs(t.x - x) < g / 2 && Math.abs(t.y - y) < g / 2)) continue;
+    if (segs.some(s => segCross(me.x, me.y, x, y, s))) continue;
+    out.push({ x, y });
+  }
+  return out;
+}
+async function handleTap(e){
+  if (!S.reach.length || S.busy) return;
+  const ms = moveState(); if (!ms) return;
+  const rect = cv.getBoundingClientRect();
+  const p = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
+  const g = gridOf(ms.m);
+  const c = S.reach.find(c => Math.abs(p.x - c.x) <= g / 2 && Math.abs(p.y - c.y) <= g / 2);
+  if (!c) return;
+  S.busy = true;
+  try { await rpc('round_move_commit', { tid: ms.mine.id, nx: c.x, ny: c.y }); toast('🏃 ¡Movido! Has terminado tu acción de esta ronda.'); }
+  catch(err){ toast(err.message, true); }
+  S.busy = false;
+}
+function avatarStyle(t){
+  return t.imgUrl ? 'background-image:url(' + esc(t.imgUrl) + ')' : 'background:' + esc(t.color || '#555');
+}
+function renderPjPanel(p){
+  const m = activeMap();
+  if (!m){ p.innerHTML = '<div class="muted">El DM aún no ha activado ningún mapa.</div>'; return; }
+  const mine = myToken(m.id);
+  let html = '';
+  if (!mine){
+    const free = gameTokens(m.id).filter(t => t.type === 'pc' && !t.hidden && !t.ownerId);
+    html += '<div class="section-title">Elige tu personaje</div>';
+    if (!free.length) html += '<div class="muted">No hay personajes libres. Pide al DM que cree tu PJ (tipo «Personaje»).</div>';
+    free.forEach(t => {
+      html += '<div class="card"><div class="row between"><div class="row"><div class="sheet-av" style="width:44px;height:44px;font-size:18px;' + avatarStyle(t) + '">' + (t.imgUrl ? '' : esc((t.name || '?').charAt(0).toUpperCase())) + '</div>' +
+        '<div><b>' + esc(t.name) + '</b><div class="mini">' + esc(raceCls(t)) + '</div></div></div>' +
+        '<button class="primary small t-claim" data-tid="' + t.id + '">Este es mi personaje</button></div></div>';
+    });
+    p.innerHTML = html; bindTokenPanel(); return;
+  }
+  const g = gridOf(m);
+  const rd = (gameDoc() || {}).round || {};
+  const hpPct = mine.hpMax > 0 ? clamp((mine.hp || 0) / mine.hpMax * 100, 0, 100) : 0;
+  // Ficha
+  html += '<div class="card"><div class="sheet-head"><div class="sheet-av" style="' + avatarStyle(mine) + '">' + (mine.imgUrl ? '' : esc((mine.name || '?').charAt(0).toUpperCase())) + '</div>' +
+    '<div class="grow"><div style="font:800 19px Cinzel,serif">' + esc(mine.name) + '</div><div class="muted">' + esc(raceCls(mine)) + '</div>' +
+    (mine.hpMax > 0 ? '<div class="hpbar"><i style="width:' + hpPct + '%"></i></div>' : '') + '</div></div>' +
+    '<div class="stat-row"><div class="stat"><b>' + (mine.hp || 0) + '/' + (mine.hpMax || 0) + '</b><span>PV</span></div>' +
+    '<div class="stat"><b>' + (mine.ac || '—') + '</b><span>CA</span></div>' +
+    '<div class="stat"><b>' + ((mine.atk || 0) >= 0 ? '+' : '') + (mine.atk || 0) + '</b><span>' + esc(mine.dmg || '1d6') + '</span></div>' +
+    '<div class="stat"><b>' + (mine.range || 1) + '</b><span>Alcance</span></div></div>' +
+    '<div class="row between" style="margin-top:8px"><span class="mini">Movimiento: ' + esc(mine.moveDie || '1d6') + '</span><button class="small" id="btnRelease">Cambiar de PJ</button></div></div>';
+  // Ronda
+  html += '<div class="section-title">Tu turno</div><div class="card">';
+  if (!rd.active){
+    html += '<div class="muted">⏳ Esperando a que el DM abra la ronda.</div>';
+  } else {
+    const done = (rd.done || {})[mine.id], pend = (rd.pending || {})[mine.id];
+    html += '<div class="row between"><b>Ronda ' + (rd.n || 1) + '</b>' + (done ? '<span class="round-pill done">✓ ' + ACTION_LABEL[done] + '</span>' : '<span class="round-pill wait">Te toca</span>') + '</div>';
+    if (done) html += '<div class="muted" style="margin-top:6px">Ya has actuado. Espera a que el DM pase de ronda.</div>';
+    else if (pend) html += '<div style="margin-top:8px">🎲 Has sacado <b style="font-size:20px;color:var(--accent)">' + pend + '</b> casillas.<br><b>Toca una casilla iluminada del mapa</b> para moverte.</div>';
+    html += '<div class="act-grid">' +
+      '<button id="actMove"' + (done || pend ? ' disabled' : '') + '><span class="ic">🎲</span>Movimiento</button>' +
+      '<button id="actAtk"' + (done || pend ? ' disabled' : '') + (S.attackPick ? ' class="primary"' : '') + '><span class="ic">⚔</span>Atacar</button>' +
+      '<button id="actPass"' + (done ? ' disabled' : '') + '><span class="ic">⏭</span>Pasar</button></div>';
+    if (S.attackPick && !done && !pend){
+      const rng = mine.range || 1;
+      const tg = gameTokens(m.id).filter(t => t.type === 'monster' && !t.hidden && tokenVisibleToPlayers(t))
+        .map(t => ({ t, d: Math.round(Math.max(Math.abs(t.x - mine.x), Math.abs(t.y - mine.y)) / g) }))
+        .sort((a, b) => a.d - b.d);
+      html += '<div class="mini" style="margin-top:8px">Enemigos a la vista (tu alcance: ' + rng + ' casilla' + (rng > 1 ? 's' : '') + '):</div>';
+      if (!tg.length) html += '<div class="muted" style="margin-top:4px">No ves ningún enemigo.</div>';
+      tg.forEach(({ t, d }) => {
+        const ok = d <= rng;
+        html += '<div class="tgt"><div><b>' + esc(t.name) + '</b> <span class="mini">a ' + d + ' casilla' + (d === 1 ? '' : 's') + '</span></div>' +
+          '<button class="small ' + (ok ? 'primary ' : '') + 'atk-go" data-tid="' + t.id + '"' + (ok ? '' : ' disabled') + '>' + (ok ? '⚔ Atacar' : 'Fuera de alcance') + '</button></div>';
+      });
+    }
+  }
+  html += '</div>';
+  // Inventario
+  const inv = mine.inventory || { slots: 5, items: [] };
+  const items = inv.items || [];
+  const slots = Math.max(inv.slots || 5, items.length);
+  html += '<div class="section-title">🎒 Inventario · ' + items.length + '/' + slots + '</div><div class="inv-grid">';
+  for (let i = 0; i < slots; i++){
+    const it = items[i];
+    if (it) html += '<div class="slot full' + (S.invSel === it.id ? ' sel' : '') + '" data-iid="' + esc(it.id) + '">' + (it.consumable ? '🧪' : '') + esc(it.name) +
+      ((it.qty || 1) > 1 ? '<span class="q">×' + it.qty + '</span>' : '') + '</div>';
+    else html += '<div class="slot"></div>';
+  }
+  html += '</div>';
+  const sel = items.find(it => it.id === S.invSel);
+  if (sel){
+    html += '<div class="card" style="margin-top:8px"><b>' + esc(sel.name) + '</b>' + ((sel.qty || 1) > 1 ? ' ×' + sel.qty : '') +
+      (sel.consumable ? ' <span class="mini">(consumible)</span>' : '') +
+      '<div class="row" style="margin-top:6px"><button class="small primary" id="invUse">' + (sel.consumable ? 'Usar' : 'Usar / mostrar') + '</button><button class="small" id="invDrop">Tirar</button></div></div>';
+  }
+  p.innerHTML = html;
+  bindTokenPanel();
+  // Acciones
+  const am = $('#actMove'); if (am) am.onclick = async () => {
+    am.disabled = true;
+    try {
+      const r = await rpc('round_move_roll', { tid: mine.id });
+      toast('🎲 ¡Has sacado ' + r + '! Toca una casilla iluminada para moverte.');
+      const rc = cv.getBoundingClientRect(); S.cam.x = rc.width / 2 - mine.x * S.cam.s; S.cam.y = rc.height / 2 - mine.y * S.cam.s; needsDraw();
+    } catch(e){ toast(e.message, true); am.disabled = false; }
+  };
+  const aa = $('#actAtk'); if (aa) aa.onclick = () => { S.attackPick = !S.attackPick; renderPanel(); };
+  const ap = $('#actPass'); if (ap) ap.onclick = () => armConfirm(ap, async () => {
+    try { await rpc('round_pass', { tid: mine.id }); toast('⏭ Has pasado el turno'); } catch(e){ toast(e.message, true); }
+  });
+  $$('.atk-go').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try {
+      const r = await rpc('round_attack', { tid: mine.id, target: b.dataset.tid });
+      S.attackPick = false;
+      toast(r.crit ? '💥 ¡CRÍTICO! ' + r.dmg + ' de daño a ' + r.target
+        : r.hit ? '⚔ ¡Impacto! (' + r.d20 + '+' + r.atk + ' vs CA ' + r.ac + ') ' + r.dmg + ' de daño a ' + r.target
+        : '🛡 Fallo (' + r.d20 + '+' + r.atk + ' vs CA ' + r.ac + ')');
+    } catch(e){ toast(e.message, true); b.disabled = false; }
+  });
+  $$('.slot.full').forEach(el => el.onclick = () => { S.invSel = (S.invSel === el.dataset.iid) ? null : el.dataset.iid; renderPanel(); });
+  const iu = $('#invUse'); if (iu) iu.onclick = async () => {
+    try { await rpc('inv_use', { tid: mine.id, iid: S.invSel }); toast('🎒 Usas ' + sel.name); } catch(e){ toast(e.message, true); }
+  };
+  const idr = $('#invDrop'); if (idr) idr.onclick = () => armConfirm(idr, async () => {
+    try { await rpc('inv_drop', { tid: mine.id, iid: S.invSel }); S.invSel = null; toast('Has tirado ' + sel.name); } catch(e){ toast(e.message, true); }
+  });
+}
+function roundCtlHtml(){
+  const g = gameDoc() || {}, rd = g.round || {}, m = activeMap();
+  const pcs = m ? gameTokens(m.id).filter(t => t.type === 'pc' && !t.hidden) : [];
+  const done = rd.done || {}, pend = rd.pending || {};
+  const nDone = pcs.filter(t => done[t.id]).length;
+  const all = pcs.length > 0 && nDone >= pcs.length;
+  let h = '<div class="section-title">🎲 Rondas libres (sin orden)</div><div class="card">';
+  if (!rd.active){
+    h += '<div class="mini">Cada jugador hace UNA acción por ronda desde su móvil, en el orden que quiera: moverse, atacar o pasar.</div>';
+    if (S.isDM) h += '<button class="primary" id="rdStart" style="width:100%;margin-top:8px">▶ Abrir ronda 1</button>';
+  } else {
+    h += '<div class="row between"><b>Ronda ' + (rd.n || 1) + '</b><span class="round-pill ' + (all ? 'done' : 'wait') + '">' + nDone + '/' + pcs.length + ' han actuado</span></div>';
+    pcs.forEach(t => {
+      const a = done[t.id];
+      h += '<div class="row between" style="margin-top:5px"><span>' + esc(t.name) + ' <span class="mini">(' + esc(t.ownerName || 'sin jugador') + ')</span></span>' +
+        '<span class="mini">' + (a ? '✓ ' + ACTION_LABEL[a] : (pend[t.id] ? '🎲 moviendo (' + pend[t.id] + ')' : '…')) + '</span></div>';
+    });
+    if (S.isDM) h += '<div class="row" style="margin-top:8px"><button class="primary grow" id="rdNext">⏭ Pasar a ronda ' + ((rd.n || 1) + 1) + (all ? ' ✓' : '') + '</button><button class="danger small" id="rdStop">⏹ Cerrar</button></div>' +
+      (all ? '' : '<div class="mini" style="margin-top:4px">Aún falta gente: si pasas de ronda, pierden su acción (pide confirmación).</div>');
+  }
+  return h + '</div>';
+}
+function bindRoundCtl(){
+  if (!S.isDM) return;
+  const st = $('#rdStart'); if (st) st.onclick = () => saveGame({ round: { active: true, n: 1, done: {}, pending: {} } });
+  const nx = $('#rdNext'); if (nx) nx.onclick = () => {
+    const rd = (gameDoc() || {}).round || {}, m = activeMap();
+    const pcs = m ? gameTokens(m.id).filter(t => t.type === 'pc' && !t.hidden) : [];
+    const go = () => { saveGame({ round: { active: true, n: (rd.n || 1) + 1, done: {}, pending: {} } }); toast('🎲 Ronda ' + ((rd.n || 1) + 1)); };
+    if (pcs.every(t => (rd.done || {})[t.id])) go(); else armConfirm(nx, go);
+  };
+  const sp = $('#rdStop'); if (sp) sp.onclick = () => armConfirm(sp, () => saveGame({ round: { active: false, n: 0, done: {}, pending: {} } }));
+}
+let qrFor = null;
+function updateQR(){
+  const g = gameDoc(), box = $('#qrBox');
+  const show = !!(g && S.gameId && g.showQR && (S.projector || (S.isDM && !S.phone)));
+  box.style.display = show ? 'block' : 'none';
+  const bq = $('#btnQR'); if (bq) bq.classList.toggle('on', !!(g && g.showQR));
+  if (!show) return;
+  if (qrFor !== S.gameId){
+    try {
+      const url = location.origin + location.pathname + '?unirse=' + encodeURIComponent(S.gameId);
+      const q = qrcode(0, 'M'); q.addData(url); q.make();
+      $('#qrImg').src = q.createDataURL(6, 2);
+      box.title = url; qrFor = S.gameId;
+    } catch(e){ box.style.display = 'none'; return; }
+  }
+  $('#qrCode').textContent = g.name || '';
+}
+$('#btnQR').onclick = () => { const g = gameDoc(); if (g) saveGame({ showQR: !g.showQR }); };
+function askName(cb){
+  $('#nameModal').classList.add('open');
+  const inp = $('#nameInput'); inp.value = (lsGet('vtt_name') || ''); setTimeout(() => inp.focus(), 50);
+  const ok = () => {
+    const v = inp.value.trim(); if (!v){ inp.focus(); return; }
+    lsSet('vtt_name', v); $('#myName').value = v;
+    $('#nameModal').classList.remove('open'); cb();
+  };
+  $('#nameOk').onclick = ok;
+  inp.onkeydown = e => { if (e.key === 'Enter') ok(); };
+}
+/* Editor de inventario (DM) y campos por tipo de token */
+(function initTokenSelects(){
+  $('#tkCls').innerHTML = '<option value="">— Sin clase —</option>' + Object.entries(CLASSES).map(([k, c]) => '<option value="' + k + '">' + c.n + '</option>').join('');
+  $('#tkRace').innerHTML = '<option value="">— Sin raza —</option>' + RACES.map(r => '<option>' + r + '</option>').join('');
+})();
+function toggleTkFields(){
+  const pc = $('#tkType').value === 'pc';
+  $$('.tkPcOnly').forEach(el => el.style.display = pc ? '' : 'none');
+}
+$('#tkType').addEventListener('change', toggleTkFields);
+$('#tkCls').addEventListener('change', () => {
+  const c = CLASSES[$('#tkCls').value]; if (!c) return;
+  $('#tkAc').value = c.ac; $('#tkAtk').value = c.atk; $('#tkDmg').value = c.dmg; $('#tkRange').value = c.range; $('#tkMove').value = c.move;
+});
+function renderInvEditor(){
+  const box = $('#tkInvList'); if (!box || !S.tkInv) return;
+  const items = S.tkInv.items || (S.tkInv.items = []);
+  box.innerHTML = items.length ? items.map((it, i) =>
+    '<div class="inv-edit-row"><input class="n" data-i="' + i + '" value="' + esc(it.name) + '"><input class="qn" type="number" min="1" data-i="' + i + '" value="' + (it.qty || 1) + '">' +
+    '<label class="row" style="gap:3px"><input type="checkbox" class="cn" data-i="' + i + '" style="width:auto"' + (it.consumable ? ' checked' : '') + '>🧪</label>' +
+    '<button class="small inv-rm" data-i="' + i + '">✕</button></div>').join('')
+    : '<div class="mini">Inventario vacío.</div>';
+  box.querySelectorAll('input.n').forEach(el => el.oninput = () => { items[el.dataset.i].name = el.value; });
+  box.querySelectorAll('input.qn').forEach(el => el.oninput = () => { items[el.dataset.i].qty = Math.max(1, parseInt(el.value) || 1); });
+  box.querySelectorAll('input.cn').forEach(el => el.onchange = () => { items[el.dataset.i].consumable = el.checked; });
+  box.querySelectorAll('.inv-rm').forEach(el => el.onclick = () => { items.splice(el.dataset.i, 1); renderInvEditor(); });
+}
+$('#tkInvAdd').onclick = () => {
+  const name = $('#tkInvName').value.trim(); if (!name) return;
+  const slots = Math.max(1, parseInt($('#tkSlots').value) || 5);
+  if ((S.tkInv.items || []).length >= slots){ toast('Inventario lleno: amplía las casillas', true); return; }
+  S.tkInv.items.push({ id: uuid(), name, qty: Math.max(1, parseInt($('#tkInvQty').value) || 1), consumable: $('#tkInvCons').checked });
+  $('#tkInvName').value = ''; $('#tkInvQty').value = 1; $('#tkInvCons').checked = false;
+  renderInvEditor();
+};
+$('#tkInvName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#tkInvAdd').click(); });
+
+/* Modo móvil */
+S.phone = !!S.join || (window.matchMedia && window.matchMedia('(max-width: 700px)').matches);
+if (S.phone && !S.projector) document.body.classList.add('phone');
 
 /* ============ proyector (segunda pantalla) ============ */
 let projBC = null;
@@ -1323,14 +1699,17 @@ if (S.projector){
 }
 
 /* ============ pestañas / paneles ============ */
-$$('#tabs button').forEach(b => b.onclick = () => {
-  $$('#tabs button').forEach(x => x.classList.remove('active'));
-  b.classList.add('active'); S.tab = b.dataset.tab; renderPanel();
-});
+function selectTab(name){
+  S.tab = name;
+  $$('#tabs button').forEach(x => x.classList.toggle('active', x.dataset.tab === name));
+  renderPanel();
+}
+$$('#tabs button').forEach(b => b.onclick = () => selectTab(b.dataset.tab));
 function renderPanel(){
   const p = $('#panel');
   if (!S.gameId){ p.innerHTML = '<div class="muted">Entra en una partida para empezar.</div>'; return; }
   if (S.tab === 'maps') renderMapsPanel(p);
+  else if (S.tab === 'pj') renderPjPanel(p);
   else if (S.tab === 'tokens') renderTokensPanel(p);
   else if (S.tab === 'init') renderInitPanel(p);
   else renderDicePanel(p);
@@ -1443,7 +1822,7 @@ function renderTokensPanel(p){
       html += '<div class="card" data-tid="' + t.id + '"><div class="row between">' +
         '<div class="row grow" style="cursor:pointer">' + dot +
         '<div class="grow"><b>' + esc(t.name) + '</b>' + (t.hidden ? ' <span class="mini">(oculto)</span>' : '') +
-        '<div class="mini">PV ' + (t.hp || 0) + '/' + (t.hpMax || 0) + ' · ' + (t.size || 1) + '×' + (t.size || 1) +
+        '<div class="mini">' + (t.type === 'pc' ? esc(raceCls(t)) + ' · ' : '') + 'PV ' + (t.hp || 0) + '/' + (t.hpMax || 0) + (S.isDM && t.ac ? ' · CA ' + t.ac : '') +
         (t.type === 'pc' ? (t.ownerId ? ' · 🎮 ' + esc(t.ownerId === S.uid ? 'tú' : (t.ownerName || 'Jugador')) : ' · <i>libre</i>') : '') + '</div></div></div>' +
         '<div class="row">' +
         (S.isDM ? '<button class="small t-hp" data-d="-1" data-tid="' + t.id + '">−</button><button class="small t-hp" data-d="1" data-tid="' + t.id + '">＋</button>' +
@@ -1524,6 +1903,16 @@ function openTokenModal(id){
   $('#tkHp').value = t ? (t.hp || 0) : 10;
   $('#tkHpMax').value = t ? (t.hpMax || 0) : 10;
   $('#tkVision').value = t ? (t.vision == null ? 12 : t.vision) : 12;
+  $('#tkCls').value = t ? (t.cls || '') : '';
+  $('#tkRace').value = t ? (t.race || '') : '';
+  $('#tkAc').value = t ? (t.ac || 12) : 12;
+  $('#tkAtk').value = t && t.atk != null ? t.atk : 3;
+  $('#tkDmg').value = t ? (t.dmg || '1d6') : '1d6';
+  $('#tkRange').value = t ? (t.range || 1) : 1;
+  $('#tkMove').value = t ? (t.moveDie || '1d6') : '1d6';
+  S.tkInv = JSON.parse(JSON.stringify((t && t.inventory) || { slots: 5, items: [] }));
+  $('#tkSlots').value = S.tkInv.slots || 5;
+  renderInvEditor(); toggleTkFields();
   $('#tkImg').value = '';
   setTkImgPreview(t ? (t.imgUrl || null) : null);
   $('#tkDelete').style.display = t ? '' : 'none';
@@ -1561,6 +1950,17 @@ $('#tkSave').onclick = async () => {
       imgUrl,
       x: center.x, y: center.y, createdAt: old ? (old.createdAt || Date.now()) : Date.now()
     };
+    t.ac = Math.max(1, parseInt($('#tkAc').value) || 12);
+    if (t.type === 'pc'){
+      const inv = { slots: Math.max(1, parseInt($('#tkSlots').value) || 5), items: (S.tkInv.items || []).filter(i => (i.name || '').trim()) };
+      if (inv.items.length > inv.slots){ toast('Hay ' + inv.items.length + ' objetos y solo ' + inv.slots + ' casillas: amplía el inventario', true); btn.disabled = false; return; }
+      Object.assign(t, {
+        cls: $('#tkCls').value || '', race: $('#tkRace').value || '',
+        atk: parseInt($('#tkAtk').value) || 0, dmg: ($('#tkDmg').value || '').trim() || '1d6',
+        range: Math.max(1, parseInt($('#tkRange').value) || 1), moveDie: ($('#tkMove').value || '').trim() || '1d6',
+        inventory: inv
+      });
+    }
     if (old && old.ownerId && t.type === 'pc'){ t.ownerId = old.ownerId; t.ownerName = old.ownerName || ''; }
     await DB.doc('tokens/' + id).set(t);
     $('#tokenModal').classList.remove('open'); S.fogDirty = true;
@@ -1603,12 +2003,18 @@ function renderCombatBadge(){
     b.style.display = '';
     const cur = c.entries[c.turn];
     b.textContent = '⚔ Ronda ' + c.round + (cur ? ' · ' + cur.name : '');
+  } else if (g && g.round && g.round.active){
+    const m = activeMap();
+    const pcs = m ? gameTokens(m.id).filter(t => t.type === 'pc' && !t.hidden) : [];
+    const done = g.round.done || {};
+    b.style.display = '';
+    b.textContent = '🎲 Ronda ' + (g.round.n || 1) + ' · ' + pcs.filter(t => done[t.id]).length + '/' + pcs.length + ' han actuado';
   } else b.style.display = 'none';
 }
 function renderInitPanel(p){
   const g = gameDoc();
   const c = (g && g.combat) || { active: false, round: 1, turn: 0, entries: [] };
-  let html = '';
+  let html = roundCtlHtml();
   if (S.isDM){
     html += '<div class="row">' +
       (c.active
@@ -1634,6 +2040,7 @@ function renderInitPanel(p){
       '</div>';
   });
   p.innerHTML = html;
+  bindRoundCtl();
   if (!S.isDM) return;
   const C = () => JSON.parse(JSON.stringify((gameDoc() && gameDoc().combat) || { active: false, round: 1, turn: 0, entries: [] }));
   const save = cc => saveGame({ combat: cc });
