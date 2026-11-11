@@ -120,6 +120,15 @@ select.cond-add{padding:2px 2px; font-size:11px; width:52px}
 #lobbyBox .sub{text-align:center; color:var(--ink-dim); margin-bottom:18px}
 
 #sidebarToggle{display:none; position:absolute; top:10px; left:10px; z-index:25; width:38px;height:38px;padding:0;font-size:17px; background:rgba(30,24,19,.92)}
+/* Modo proyector: solo el mapa */
+body.projector header, body.projector #sidebar, body.projector #stageTools, body.projector #banner,
+body.projector #sidebarToggle, body.projector #pickHint, body.projector #lobby, body.projector #distLabel, body.projector #emptyImportBtn{display:none !important}
+body.projector #stage, body.projector #cv{background:#000}
+#projFs{display:none; position:fixed; right:14px; bottom:14px; z-index:50; padding:10px 14px; background:rgba(30,24,19,.9); transition:opacity .4s}
+body.projector #projFs{display:block}
+body.projector.idle #projFs{opacity:0; pointer-events:none}
+body.projector.idle{cursor:none}
+#btnSync.on{border-color:var(--accent); color:var(--accent)}
 @media(max-width:860px){
   #sidebar{position:absolute; left:0; top:0; bottom:0; transform:translateX(-100%); transition:transform .2s; box-shadow:4px 0 20px rgba(0,0,0,.5)}
   #sidebar.open{transform:none}
@@ -162,6 +171,8 @@ select.cond-add{padding:2px 2px; font-size:11px; width:52px}
     <div class="spacer"></div>
     <div id="peersBar" title="Conectados ahora"></div>
     <button id="btnViewAs" class="small" style="display:none" title="Previsualizar lo que ven los jugadores">👁 Ver como jugador</button>
+    <button id="btnProjector" class="small" style="display:none" title="Abrir una segunda ventana con la vista de jugador para la tele o el proyector">📽 Proyector</button>
+    <button id="btnSync" class="small on" style="display:none" title="El proyector sigue tu encuadre y zoom">🔗 Vista sincronizada</button>
     <button id="btnLeave" class="small" style="display:none" title="Volver al lobby">⏻ Salir</button>
   </header>
   <main>
@@ -303,6 +314,8 @@ const S = {
   media: { mapId: null, img: null, video: null, w: 0, h: 0 },
   cam: { x: 40, y: 40, s: 0.4 },
   tab: 'tokens', showGrid: true, showWalls: false,
+  projector: new URLSearchParams(location.search).get('proyector') || null,
+  syncProjector: true, projectorOpen: false,
   drag: null, pan: null, pings: [], peers: [],
   visPolys: [], fogDirty: true, explored: {},
   editingToken: null, pendingImport: null,
@@ -477,11 +490,13 @@ function applyRole(){
     rb.className = 'badge' + (S.isDM ? ' dm' : '');
   }
   $('#btnViewAs').style.display = (S.isDM && S.gameId) ? '' : 'none';
+  $('#btnProjector').style.display = (S.isDM && S.gameId && !S.projector) ? '' : 'none';
+  $('#btnSync').style.display = (S.isDM && S.gameId && !S.projector && S.projectorOpen) ? '' : 'none';
   $('#btnFog').style.display = S.isDM ? '' : 'none';
   $('#btnWalls').style.display = S.isDM ? '' : 'none';
   $('#tabMapsBtn').style.display = S.isDM ? '' : 'none';
   $('#emptyImportBtn').style.display = S.isDM ? '' : 'none';
-  $('#emptyHint').textContent = S.isDM
+  $('#emptyHint').textContent = S.projector ? 'Esperando a que el DM active un mapa…' : S.isDM
     ? 'Exporta tu mapa desde Dungeon Alchemist (formato Foundry o Universal VTT) e impórtalo aquí.'
     : 'El DM aún no ha activado ningún mapa. ¡Prepara tus dados!';
   renderPanel();
@@ -490,6 +505,12 @@ function applyRole(){
 /* ============ partidas (lobby) ============ */
 function gameDoc(){ return S.gameId ? (S.games[S.gameId] || null) : null; }
 function showLobby(){
+  if (S.projector){
+    $('#emptyState').style.display = 'flex';
+    $('#emptyState .big').textContent = 'Proyector esperando a la partida…';
+    $('#emptyHint').textContent = 'Abre esta ventana desde el botón 📽 Proyector de la partida.';
+    return;
+  }
   $('#lobby').classList.add('open');
   $('#gameBadge').style.display = 'none';
   $('#btnLeave').style.display = 'none';
@@ -560,11 +581,12 @@ $('#btnCreateGame').onclick = () => {
 function joinGame(id, silent){
   const g = S.games[id];
   if (!g && !silent){ toast('Esa partida ya no existe', true); return; }
-  lsSet('vtt_name', ($('#myName').value || lsGet('vtt_name') || '').trim());
+  if (!S.projector) lsSet('vtt_name', ($('#myName').value || lsGet('vtt_name') || '').trim());
   S.gameId = id;
   S.isDM = S.localMode ? true : !!(g && g.dmId === S.uid);
   S.lobbyManual = false;
-  lsSet('vtt_game', { id });
+  if (S.projector){ S.viewAsPlayer = true; S.fogDirty = true; }
+  else lsSet('vtt_game', { id });
   $('#lobby').classList.remove('open');
   $('#btnLeave').style.display = '';
   updateGameBadge();
@@ -610,7 +632,7 @@ function joinRoomFor(id){
   });
   ch.subscribe(status => {
     if (status === 'SUBSCRIBED'){
-      try { ch.track({ uid: S.uid, name: myName(), dm: S.isDM }); } catch(e){}
+      if (!S.projector){ try { ch.track({ uid: S.uid, name: myName(), dm: S.isDM }); } catch(e){} }
     }
   });
   GCH = ch;
@@ -637,6 +659,10 @@ function startSubscriptions(){
     arr.forEach(g => { S.games[g.id] = g; });
     if (S.gameId && !S.games[S.gameId] && !S.localMode){
       toast('La partida ha sido cerrada por el DM'); leaveGame(); return;
+    }
+    if (S.projector && !S.gameId){
+      if (S.games[S.projector]) joinGame(S.projector, true);
+      return;
     }
     if (!S.gameId && !S.lobbyManual && !S.localMode){
       const st = lsGet('vtt_game');
@@ -734,6 +760,7 @@ function resizeCanvas(){
 }
 window.addEventListener('resize', resizeCanvas);
 function fitView(){
+  if (S.projector && lastCamMsg){ applyCamFromDM(lastCamMsg); return; }
   const m = activeMap(); if (!m || !S.media.w) return;
   const r = cv.getBoundingClientRect();
   const s = Math.min(r.width / S.media.w, r.height / S.media.h) * 0.95;
@@ -995,6 +1022,7 @@ function draw(){
   });
   if (S.pings.length) needsDraw();
   ctx.restore();
+  sendCamToProjector();
 }
 function drawDoors(m, g){
   const ds = m.doorStates || {};
@@ -1072,7 +1100,7 @@ function drawToken(t, m, ghost){
 /* ============ interacción canvas ============ */
 const pointers = new Map();
 let pinchStart = null;
-function canMoveToken(t){ return S.isDM; }
+function canMoveToken(t){ return S.isDM && !S.projector; }
 function hitToken(mx, my){
   const m = activeMap(); if (!m) return null;
   const g = gridOf(m);
@@ -1108,7 +1136,7 @@ cv.addEventListener('pointerdown', e => {
   }
   const rect = cv.getBoundingClientRect();
   const p = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
-  if (S.isDM){
+  if (S.isDM && !S.projector){
     const di = hitDoor(p.x, p.y);
     if (di !== null){
       const m = activeMap();
@@ -1214,6 +1242,85 @@ $('#btnViewAs').onclick = () => {
   S.fogDirty = true; needsDraw();
 };
 $('#sidebarToggle').onclick = () => $('#sidebar').classList.toggle('open');
+
+/* ============ proyector (segunda pantalla) ============ */
+let projBC = null;
+try { projBC = new BroadcastChannel('vtt-proyector'); } catch(e){}
+let lastCamSent = '';
+function sendCamToProjector(){
+  if (S.projector || !projBC || !S.projectorOpen || !S.syncProjector || !S.gameId) return;
+  const r = cv.getBoundingClientRect();
+  if (!r.width) return;
+  const c = screenToMap(r.width / 2, r.height / 2);
+  const msg = { type: 'cam', gameId: S.gameId, cx: c.x, cy: c.y, visW: r.width / S.cam.s, visH: r.height / S.cam.s };
+  const key = [msg.cx, msg.cy, msg.visW, msg.visH].map(v => Math.round(v)).join(',');
+  if (key === lastCamSent) return;
+  lastCamSent = key;
+  projBC.postMessage(msg);
+}
+let lastCamMsg = null;
+window.addEventListener('resize', () => { if (S.projector && lastCamMsg) setTimeout(() => applyCamFromDM(lastCamMsg), 60); });
+function applyCamFromDM(msg){
+  lastCamMsg = msg;
+  const r = cv.getBoundingClientRect();
+  if (!r.width || !msg.visW) return;
+  const s = Math.min(r.width / msg.visW, r.height / msg.visH);
+  S.cam.s = s;
+  S.cam.x = r.width / 2 - msg.cx * s;
+  S.cam.y = r.height / 2 - msg.cy * s;
+  needsDraw();
+}
+if (projBC){
+  projBC.onmessage = ev => {
+    const msg = ev.data || {};
+    if (S.projector){
+      if (msg.type === 'cam' && msg.gameId === S.gameId) applyCamFromDM(msg);
+      if (msg.type === 'fit') fitView();
+    } else {
+      if (msg.type === 'hello' && msg.gameId === S.gameId){
+        if (!S.projectorOpen){ S.projectorOpen = true; applyRole(); }
+        lastCamSent = ''; sendCamToProjector();
+      }
+      if (msg.type === 'bye' && S.projectorOpen){ S.projectorOpen = false; applyRole(); }
+    }
+  };
+}
+$('#btnProjector').onclick = () => {
+  if (!S.gameId) return;
+  const url = location.pathname + '?proyector=' + encodeURIComponent(S.gameId);
+  const w = window.open(url, 'vtt-proyector', 'popup,width=1280,height=720');
+  if (!w){ toast('El navegador ha bloqueado la ventana emergente: permítela para este sitio', true); return; }
+  S.projectorOpen = true; applyRole();
+  toast('Arrastra la ventana del proyector a la otra pantalla y pulsa «Pantalla completa»');
+};
+$('#btnSync').onclick = () => {
+  S.syncProjector = !S.syncProjector;
+  const b = $('#btnSync');
+  b.classList.toggle('on', S.syncProjector);
+  b.textContent = S.syncProjector ? '🔗 Vista sincronizada' : '⛓‍💥 Proyector congelado';
+  if (S.syncProjector){ lastCamSent = ''; sendCamToProjector(); }
+};
+if (S.projector){
+  document.body.classList.add('projector');
+  document.title = '📽 Proyector — Mesa de Rol';
+  const fsBtn = document.createElement('button');
+  fsBtn.id = 'projFs'; fsBtn.textContent = '⛶ Pantalla completa';
+  fsBtn.onclick = () => {
+    const el = document.documentElement;
+    if (!document.fullscreenElement) (el.requestFullscreen ? el.requestFullscreen() : Promise.reject()).catch(() => toast('Usa F11 para pantalla completa'));
+    else document.exitFullscreen();
+  };
+  document.body.appendChild(fsBtn);
+  let idleT = null;
+  const wake = () => { document.body.classList.remove('idle'); clearTimeout(idleT); idleT = setTimeout(() => document.body.classList.add('idle'), 2500); };
+  window.addEventListener('mousemove', wake); wake();
+  document.addEventListener('fullscreenchange', () => setTimeout(resizeCanvas, 50));
+  if (projBC){
+    const hello = () => projBC.postMessage({ type: 'hello', gameId: S.projector });
+    hello(); setInterval(hello, 5000);
+    window.addEventListener('beforeunload', () => projBC.postMessage({ type: 'bye' }));
+  }
+}
 
 /* ============ pestañas / paneles ============ */
 $$('#tabs button').forEach(b => b.onclick = () => {
