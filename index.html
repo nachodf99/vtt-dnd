@@ -1297,6 +1297,10 @@ function renderTokensPanel(p){
   const m = activeMap();
   let html = '';
   if (S.isDM) html += '<button class="primary" id="btnNewToken" style="width:100%"' + (m ? '' : ' disabled') + '>＋ Nuevo token</button>';
+  if (S.isDM && m){
+    const avail = gameTokens(m.id).filter(t => t.type === 'pc' && !t.hidden);
+    if (!avail.length) html += '<div class="card" style="margin-top:8px; border-color:var(--accent)"><div class="mini">⚠ Tus jugadores no tienen ningún personaje que elegir: crea tokens de tipo <b>Personaje (PJ)</b> y que no estén ocultos (🙈).</div></div>';
+  }
   if (!m){ p.innerHTML = html + '<div class="muted" style="margin-top:10px">Activa un mapa para colocar tokens.</div>'; bindTokenPanel(); return; }
   const toks = gameTokens(m.id);
   const seeAll = S.isDM;
@@ -1407,7 +1411,7 @@ function openTokenModal(id){
   const t = id ? S.tokens[id] : null;
   $('#tokenModalTitle').textContent = t ? 'Editar token' : 'Nuevo token';
   $('#tkName').value = t ? t.name : '';
-  $('#tkType').value = t ? t.type : 'monster';
+  $('#tkType').value = t ? t.type : 'pc';
   $('#tkColor').value = t ? (t.color || '#8c2b2b') : COLORS[Math.floor(Math.random() * COLORS.length)];
   $('#tkSize').value = t ? (t.size || 1) : 1;
   $('#tkHp').value = t ? (t.hp || 0) : 10;
