@@ -839,9 +839,11 @@ function getExplored(m){
   }
   return c;
 }
+let fogReady = false;
 function recomputeFog(){
-  S.fogDirty = false; S.visPolys = [];
+  S.fogDirty = false; S.visPolys = []; fogReady = false;
   const m = activeMap(); if (!m || !S.media.w) return;
+  const remember = m.rememberExplored === true;
   const segs = wallSegs(m, true);
   const g = gridOf(m);
   const srcs = visionSources(m);
@@ -860,16 +862,20 @@ function recomputeFog(){
   fogCanvas.height = Math.max(1, Math.round(S.media.h * fs));
   const fc = fogCanvas.getContext('2d');
   fc.clearRect(0, 0, fogCanvas.width, fogCanvas.height);
-  fc.fillStyle = 'rgba(6,5,10,0.985)';
+  fc.fillStyle = '#000';
   fc.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
   fc.globalCompositeOperation = 'destination-out';
-  fc.globalAlpha = 0.55;
-  fc.drawImage(ex, 0, 0, fogCanvas.width, fogCanvas.height);
-  fc.globalAlpha = 1;
+  if (remember){
+    // opcional: lo ya explorado queda en penumbra (sin tokens enemigos)
+    fc.globalAlpha = 0.35;
+    fc.drawImage(ex, 0, 0, fogCanvas.width, fogCanvas.height);
+    fc.globalAlpha = 1;
+  }
   fc.save(); fc.scale(fs, fs);
   S.visPolys.forEach(p => { if (p.length > 5){ fc.beginPath(); fc.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) fc.lineTo(p[i], p[i + 1]); fc.closePath(); fc.fill(); } });
   fc.restore();
   fc.globalCompositeOperation = 'source-over';
+  fogReady = true;
 }
 function tokenVisibleToPlayers(t){
   if (t.type === 'pc') return !t.hidden;
@@ -939,7 +945,8 @@ function draw(){
   });
   drawDoors(m, g);
   if (fogOn){
-    ctx.drawImage(fogCanvas, 0, 0, S.media.w, S.media.h);
+    if (fogReady) ctx.drawImage(fogCanvas, 0, 0, S.media.w, S.media.h);
+    else { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, S.media.w, S.media.h); }
   } else if (S.isDM && m.fog !== false && S.viewAsPlayer === false){
     ctx.globalAlpha = 0.22;
     ctx.drawImage(fogCanvas, 0, 0, S.media.w, S.media.h);
@@ -1233,7 +1240,8 @@ function renderMapsPanel(p){
         '<button class="small cal" data-x="-' + (m.grid || 70) + '" data-y="0">←1 casilla</button><button class="small cal" data-x="' + (m.grid || 70) + '" data-y="0">→1 casilla</button></div>' +
         '<div class="row" style="margin-top:4px"><button class="small cal" data-x="0" data-y="-' + (m.grid || 70) + '">↑1 casilla</button><button class="small cal" data-x="0" data-y="' + (m.grid || 70) + '">↓1 casilla</button><button class="small" id="calReset">Reiniciar</button><span class="mini">off: ' + (m.wallOffX || 0) + ',' + (m.wallOffY || 0) + '</span></div>';
     }
-    html += '<div class="row" style="margin-top:8px"><button class="small" id="resetExplored">🌫 Reiniciar zonas exploradas</button></div></div>';
+    html += '<div class="row between" style="margin-top:6px"><label>Recordar zonas exploradas (penumbra)</label><button class="small" id="setRemember">' + (m.rememberExplored === true ? 'Sí' : 'No') + '</button></div>' +
+      '<div class="row" style="margin-top:8px"><button class="small" id="resetExplored">🌫 Reiniciar zonas exploradas</button></div></div>';
   }
   p.innerHTML = html;
   $('#btnImport').onclick = openImport;
@@ -1258,6 +1266,7 @@ function renderMapsPanel(p){
       DB.doc('maps/' + m.id).update({ wallOffX: (m.wallOffX || 0) + parseInt(b.dataset.x), wallOffY: (m.wallOffY || 0) + parseInt(b.dataset.y) }).catch(() => {});
     });
     const cr = $('#calReset'); if (cr) cr.onclick = () => DB.doc('maps/' + m.id).update({ wallOffX: 0, wallOffY: 0 }).catch(() => {});
+    $('#setRemember').onclick = () => DB.doc('maps/' + m.id).update({ rememberExplored: m.rememberExplored !== true }).catch(() => {});
     $('#resetExplored').onclick = () => {
       delete S.explored[(S.gameId || 'x') + ':' + m.id];
       S.fogDirty = true; needsDraw(); toast('Zonas exploradas reiniciadas');
