@@ -32,7 +32,7 @@ language plpgsql security definer set search_path = public as $$
 declare tok jsonb; it jsonb; fx jsonb; nm text; q int; gid text; g jsonb; res jsonb; descr text;
         heal int; hp int; hpmax int; nhp int;
         tg jsonb; grid numeric; dist int; rng int; dc int; d20 int; sbonus int; saved boolean := false; dmg int := 0; raw int;
-        only jsonb; ctype text; immune boolean := false; burn boolean := false; dead boolean := false; share int := 0;
+        onlyt jsonb; ctype text; immune boolean := false; burn boolean := false; dead boolean := false; share int := 0;
         counter jsonb := null; det text; mode text;
 begin
   if auth.uid() is null then raise exception 'No has iniciado sesión'; end if;
@@ -84,11 +84,11 @@ begin
       det := 'salvación de Des [' || d20 || '] ' || case when sbonus >= 0 then '+' else '' end || sbonus || ' vs CD ' || dc || ' → ' ||
              case when saved then 'la supera' else 'la falla' end;
     end if;
-    only := fx->'only';
+    onlyt := fx->'only';
     ctype := lower(coalesce(tg->>'ctype', ''));
-    if only is not null and jsonb_array_length(only) > 0 and not (only ? ctype) then
+    if onlyt is not null and jsonb_array_length(onlyt) > 0 and not (onlyt ? ctype) then
       immune := true; dmg := 0;
-      det := det || ' · no le afecta (solo ' || (select string_agg(x, ' / ') from jsonb_array_elements_text(only) x) || ')';
+      det := det || ' · no le afecta (solo ' || (select string_agg(x, ' / ') from jsonb_array_elements_text(onlyt) x) || ')';
     end if;
     burn := coalesce((fx->>'burn')::boolean, false) and not saved and not immune;
     hp := coalesce((tg->>'hp')::int, 0); hpmax := coalesce((tg->>'hpMax')::int, 0);

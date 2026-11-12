@@ -71,7 +71,10 @@ Copia `config.local.example.js` como `config.local.js` con las claves del proyec
 - **Ataques por clase** (12 clases × 4-5 ataques) que se desbloquean por nivel; catálogo en la tabla `attacks`.
 - **Experiencia**: impacto +10 XP, fallo +2 XP; al matar un monstruo su XP (por defecto 5 × PV máx, mín. 20) se reparte entre el grupo. Niveles: 100 / 300 / 600 / 1000 / 1500 / 2100 / 2800 / 3600 / 4500 XP. Subir de nivel da PV según la clase y +1 al ataque en los niveles 5 y 9.
 - **Monstruos**: a 0 PV desaparecen. Son defensivos: contraatacan si sobreviven y el PJ está a su alcance, y atacan al PJ que termina su movimiento a su alcance y con línea de visión. Los ocultos no reaccionan. Un PJ a 0 PV queda inconsciente.
-- Las reglas se validan en el servidor: ejecutar `supabase/rounds.sql` y después `supabase/combat_v2.sql` en cada proyecto antes de promover el código.
+- **Objetos (5e 2024)**: catálogo de 234 objetos (armas, armaduras, equipo, pociones, pergaminos, objetos mágicos) para dar a un PJ o a todo el grupo. Consumibles con efecto automático: pociones de curación (acción adicional), ácido, fuego de alquimista (deja Ardiendo: 1d4 por ronda), agua bendita (solo Infernal/No muerto), poción de aliento de fuego, varitas de proyectil mágico / bolas de fuego / relámpagos y collar de bolas de fuego. El resto son narrativos (se gastan y quedan en el registro).
+- Las reglas se validan en el servidor: ejecutar en orden `supabase/rounds.sql`, `supabase/combat_v2.sql`, `supabase/items.sql` y `supabase/effects.sql` en cada proyecto antes de promover el código.
+
+> Mecánicas de objetos basadas en el System Reference Document 5.2 (SRD 5.2) de Wizards of the Coast LLC, disponible bajo licencia [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). Traducciones y textos propios.
 
 ## Permisos (RLS)
 
