@@ -122,7 +122,7 @@ select.cond-add{padding:2px 2px; font-size:11px; width:52px}
 #sidebarToggle{display:none; position:absolute; top:10px; left:10px; z-index:25; width:38px;height:38px;padding:0;font-size:17px; background:rgba(30,24,19,.92)}
 /* Modo proyector: solo el mapa */
 body.projector header, body.projector #sidebar, body.projector #stageTools, body.projector #banner,
-body.projector #sidebarToggle, body.projector #pickHint, body.projector #lobby, body.projector #distLabel, body.projector #emptyImportBtn{display:none !important}
+body.projector #sidebarToggle, body.projector #btnMapSize, body.projector #tourAsk, body.projector #pickHint, body.projector #lobby, body.projector #distLabel, body.projector #emptyImportBtn{display:none !important}
 body.projector #stage, body.projector #cv{background:#000}
 #projFs{display:none; position:fixed; right:14px; bottom:14px; z-index:50; padding:10px 14px; background:rgba(30,24,19,.9); transition:opacity .4s}
 body.projector #projFs{display:block}
@@ -184,20 +184,94 @@ body.projector #qrBox img{width:210px; height:210px}
 .note-warn{font-size:12px; color:#e0b46a; margin-top:4px}
 .tk-abil{display:grid; grid-template-columns:repeat(6,1fr); gap:4px}
 .tk-abil input{width:100%; text-align:center; padding:5px 2px}
-/* Modo móvil (jugador por QR o pantalla estrecha) */
-body.phone main{flex-direction:column}
-body.phone #stage{flex:none; height:46vh}
-body.phone #sidebar{position:static; transform:none; width:100%; min-width:0; flex:1; min-height:0; border-right:none; border-top:2px solid var(--line); box-shadow:none}
-body.phone #sidebarToggle{display:none !important}
-body.phone header .logo span, body.phone #peersBar{display:none}
-body.phone header{padding:6px 10px; gap:6px}
-body.phone #stageTools button{width:34px; height:34px; font-size:15px}
-body.phone #tabs button{padding:9px 2px; font-size:12px}
-@media(max-width:860px){
-  #sidebar{position:absolute; left:0; top:0; bottom:0; transform:translateX(-100%); transition:transform .2s; box-shadow:4px 0 20px rgba(0,0,0,.5)}
-  #sidebar.open{transform:none}
-  #sidebarToggle{display:block}
+/* ===== Diseño adaptable ===== */
+html{-webkit-text-size-adjust:100%}
+body{height:100dvh}
+#app{height:100dvh}
+header .hbtn .ic{margin-right:4px}
+#btnHelp{width:34px; height:34px; padding:0; border-radius:50%; font-weight:800; font-size:16px; border-color:var(--accent); color:var(--accent); flex-shrink:0}
+#btnHelp:hover{background:var(--accent); color:#1a1208}
+#sidebar{transition:margin .2s}
+body.side-hidden:not(.phone) #sidebar{margin-left:-330px}
+#sidebarToggle{display:block; left:10px; top:10px}
+#btnMapSize{display:none; position:absolute; left:10px; top:10px; z-index:25; height:34px; padding:0 10px; font-size:13px; background:rgba(30,24,19,.92)}
+#tabs{overflow-x:auto; scrollbar-width:none}
+#tabs::-webkit-scrollbar{display:none}
+#tabs button{white-space:nowrap; min-width:64px}
+/* Ordenador grande */
+@media(min-width:1400px){
+  #sidebar{width:380px; min-width:380px}
+  body.side-hidden:not(.phone) #sidebar{margin-left:-380px}
+  body{font-size:14.5px}
 }
+/* Portátil / tableta horizontal: botones de cabecera solo con icono */
+@media(max-width:1180px){
+  header .hbtn .lbl{display:none}
+  header .hbtn .ic{margin-right:0}
+  header .hbtn{padding:6px 9px; font-size:15px}
+  .badge.game{max-width:140px}
+}
+/* Móvil o pantalla estrecha: mapa arriba y panel abajo */
+body.phone main{flex-direction:column}
+body.phone #stage{flex:none; height:44%; min-height:150px; transition:height .2s}
+body.phone.map-big #stage{height:74%}
+body.phone.map-small #stage{height:22%}
+body.phone #sidebar{position:static; transform:none; width:100%; min-width:0; flex:1; min-height:0; border-right:none; border-top:2px solid var(--line); box-shadow:none; margin:0}
+body.phone #sidebarToggle{display:none !important}
+body.phone #btnMapSize{display:block}
+body.phone header .logo span, body.phone #peersBar, body.phone #envBadge{display:none}
+body.phone header{padding:6px 8px; gap:6px; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none}
+body.phone header::-webkit-scrollbar{display:none}
+body.phone header .logo{font-size:15px}
+body.phone .badge{white-space:nowrap}
+body.phone #stageTools{top:8px; right:8px; gap:5px}
+body.phone #stageTools button{width:36px; height:36px; font-size:15px}
+body.phone #tabs button{padding:11px 6px; font-size:12.5px; flex:1 0 auto}
+body.phone #panel{padding:10px 10px calc(14px + env(safe-area-inset-bottom))}
+body.phone button{min-height:38px}
+body.phone button.small{min-height:32px; padding:5px 10px}
+body.phone input, body.phone select, body.phone textarea{font-size:16px}
+body.phone .modal-back{padding:0; align-items:flex-end}
+body.phone .modal{max-width:none; border-radius:16px 16px 0 0; max-height:94dvh; padding:16px 14px calc(16px + env(safe-area-inset-bottom))}
+body.phone #toasts{bottom:auto; top:58px}
+body.phone #qrBox img{width:110px; height:110px}
+body.phone .act-grid button{padding:16px 4px}
+/* Móvil en horizontal: mapa y panel lado a lado */
+@media(max-height:520px) and (orientation:landscape){
+  body.phone main{flex-direction:row}
+  body.phone #stage{height:auto !important; flex:1}
+  body.phone #sidebar{width:46%; min-width:300px; max-width:420px; flex:none; border-top:none; border-left:2px solid var(--line)}
+  body.phone #btnMapSize{display:none}
+  body.phone header{padding:4px 8px}
+}
+/* ===== Ayuda y tutorial ===== */
+.help-tabs{display:flex; gap:4px; overflow-x:auto; margin:-4px 0 12px; scrollbar-width:none}
+.help-tabs::-webkit-scrollbar{display:none}
+.help-tabs button{white-space:nowrap; font-size:12.5px; padding:6px 10px}
+.help-tabs button.active{border-color:var(--accent); color:var(--accent); background:rgba(201,162,39,.08)}
+.help-body{font-size:13.5px; line-height:1.5}
+.help-body h3{font-size:14px; color:var(--accent); margin:14px 0 6px}
+.help-body h3:first-child{margin-top:0}
+.help-body ol, .help-body ul{padding-left:20px; margin:4px 0 8px}
+.help-body li{margin-bottom:4px}
+.help-key{display:grid; grid-template-columns:42px 1fr; gap:8px; align-items:start; padding:7px 0; border-bottom:1px solid var(--line)}
+.help-key:last-child{border-bottom:none}
+.help-key .k{width:38px; height:34px; border:1px solid var(--line); border-radius:8px; display:flex; align-items:center; justify-content:center; background:var(--panel2); font-size:15px}
+.help-key b{display:block; color:#fff; font-size:13px}
+.help-key span{font-size:12.5px; color:var(--ink-dim)}
+.help-tip{background:#241b10; border:1px solid #6e5512; border-radius:10px; padding:8px 10px; font-size:12.5px; margin:8px 0}
+#tourLayer{position:fixed; inset:0; z-index:400; display:none}
+#tourLayer.open{display:block}
+#tourBlock{position:absolute; inset:0}
+#tourSpot{position:absolute; border-radius:10px; box-shadow:0 0 0 9999px rgba(0,0,0,.72); border:2px solid var(--accent); transition:all .25s; pointer-events:none}
+#tourCard{position:absolute; width:min(340px, calc(100vw - 24px)); background:var(--panel); border:1px solid var(--accent); border-radius:14px; padding:14px; box-shadow:0 8px 30px rgba(0,0,0,.6); transition:top .25s, left .25s}
+#tourCard h4{font-family:Cinzel,serif; color:var(--accent); font-size:16px; margin-bottom:6px}
+#tourCard p{font-size:13.5px; line-height:1.45}
+#tourCard .row{margin-top:12px}
+#tourDots{font-size:11px; color:var(--ink-dim)}
+#tourAsk{position:fixed; left:50%; transform:translateX(-50%); bottom:18px; z-index:150; background:var(--panel); border:1px solid var(--accent); border-radius:14px; padding:12px 14px; box-shadow:0 6px 24px rgba(0,0,0,.6); display:none; width:min(380px, calc(100vw - 24px))}
+#tourAsk.open{display:block}
+#lobbyHelp{position:fixed; top:14px; right:14px; z-index:95}
 </style>
 </head>
 <body>
@@ -205,6 +279,7 @@ body.phone #tabs button{padding:9px 2px; font-size:12px}
 
 <!-- Lobby de partidas -->
 <div id="lobby">
+  <button id="lobbyHelp" class="small" title="Ayuda">❓ Ayuda</button>
   <div id="lobbyBox">
     <h1>⚔ Mesa de Rol</h1>
     <div class="sub" id="lobbySub">Elige una partida para entrar</div>
@@ -234,10 +309,11 @@ body.phone #tabs button{padding:9px 2px; font-size:12px}
     <span id="roundBadge"></span>
     <div class="spacer"></div>
     <div id="peersBar" title="Conectados ahora"></div>
-    <button id="btnViewAs" class="small" style="display:none" title="Previsualizar lo que ven los jugadores">👁 Ver como jugador</button>
-    <button id="btnProjector" class="small" style="display:none" title="Abrir una segunda ventana con la vista de jugador para la tele o el proyector">📽 Proyector</button>
-    <button id="btnSync" class="small on" style="display:none" title="El proyector sigue tu encuadre y zoom">🔗 Vista sincronizada</button>
-    <button id="btnLeave" class="small" style="display:none" title="Volver al lobby">⏻ Salir</button>
+    <button id="btnViewAs" class="small hbtn" style="display:none" title="Previsualizar lo que ven los jugadores"><span class="ic">👁</span><span class="lbl">Ver como jugador</span></button>
+    <button id="btnProjector" class="small hbtn" style="display:none" title="Abrir una segunda ventana con la vista de jugador para la tele o el proyector"><span class="ic">📽</span><span class="lbl">Proyector</span></button>
+    <button id="btnSync" class="small on hbtn" style="display:none" title="El proyector sigue tu encuadre y zoom"><span class="ic">🔗</span><span class="lbl">Vista sincronizada</span></button>
+    <button id="btnLeave" class="small hbtn" style="display:none" title="Volver al lobby"><span class="ic">⏻</span><span class="lbl">Salir</span></button>
+    <button id="btnHelp" title="Ayuda y tutorial">?</button>
   </header>
   <main>
     <div id="sidebar">
@@ -252,7 +328,8 @@ body.phone #tabs button{padding:9px 2px; font-size:12px}
     </div>
     <div id="stage">
       <canvas id="cv"></canvas>
-      <button id="sidebarToggle">☰</button>
+      <button id="sidebarToggle" title="Ocultar o mostrar el panel lateral">☰</button>
+      <button id="btnMapSize" title="Cambiar el tamaño del mapa">⤢ Mapa</button>
       <div id="stageTools">
         <button id="btnZoomIn" title="Acercar">＋</button>
         <button id="btnZoomOut" title="Alejar">－</button>
@@ -276,6 +353,26 @@ body.phone #tabs button{padding:9px 2px; font-size:12px}
       </div>
     </div>
   </main>
+</div>
+
+<!-- Ayuda -->
+<div class="modal-back" id="helpModal">
+  <div class="modal" style="max-width:620px">
+    <div class="row between" style="margin-bottom:10px"><h2 style="margin:0">❓ Ayuda</h2><button class="small" id="helpClose">✕ Cerrar</button></div>
+    <div class="help-tabs" id="helpTabs"></div>
+    <div class="help-body" id="helpBody"></div>
+    <div class="row" style="margin-top:14px; justify-content:flex-end"><button class="primary" id="helpTour">🧭 Tutorial guiado</button></div>
+  </div>
+</div>
+<div id="tourLayer"><div id="tourBlock"></div><div id="tourSpot"></div>
+  <div id="tourCard"><div class="row between" style="margin:0 0 4px"><span id="tourDots"></span><button class="small" id="tourSkip">Saltar</button></div>
+    <h4 id="tourTitle"></h4><p id="tourText"></p>
+    <div class="row between"><button class="small" id="tourPrev">← Anterior</button><button class="primary small" id="tourNext">Siguiente →</button></div>
+  </div>
+</div>
+<div id="tourAsk"><div style="font-weight:600; margin-bottom:4px">👋 ¿Primera vez en la mesa?</div>
+  <div class="muted">Un recorrido rápido (1 minuto) te enseña para qué sirve cada botón.</div>
+  <div class="row" style="margin-top:10px; justify-content:flex-end"><button class="small" id="tourAskNo">Ahora no</button><button class="primary small" id="tourAskYes">🧭 Ver tutorial</button></div>
 </div>
 
 <!-- Modal: importar mapa -->
@@ -764,6 +861,7 @@ function joinGame(id, silent){
   joinRoomFor(id);
   selectTab(S.tab);
   updateQR();
+  maybeOfferTour();
 }
 function leaveGame(){
   S.gameId = null; S.isDM = false; S.lobbyManual = true;
@@ -1426,10 +1524,19 @@ $('#btnFog').onclick = () => {
 };
 $('#btnViewAs').onclick = () => {
   S.viewAsPlayer = !S.viewAsPlayer;
-  $('#btnViewAs').textContent = S.viewAsPlayer ? '👑 Volver a vista DM' : '👁 Ver como jugador';
+  $('#btnViewAs').innerHTML = S.viewAsPlayer ? '<span class="ic">👑</span><span class="lbl">Volver a vista DM</span>' : '<span class="ic">👁</span><span class="lbl">Ver como jugador</span>';
   S.fogDirty = true; needsDraw();
 };
-$('#sidebarToggle').onclick = () => $('#sidebar').classList.toggle('open');
+$('#sidebarToggle').onclick = () => { document.body.classList.toggle('side-hidden'); setTimeout(resizeCanvas, 220); };
+$('#btnMapSize').onclick = () => {
+  const b = document.body.classList;
+  if (b.contains('map-big')){ b.remove('map-big'); b.add('map-small'); }
+  else if (b.contains('map-small')) b.remove('map-small');
+  else b.add('map-big');
+  $('#btnMapSize').textContent = b.contains('map-big') ? '⤡ Panel' : b.contains('map-small') ? '⤢ Mapa' : '⤢ Mapa';
+  setTimeout(resizeCanvas, 220);
+};
+try { new ResizeObserver(() => resizeCanvas()).observe($('#stage')); } catch(e){}
 
 /* ============ rondas libres, ficha de PJ, inventario, QR ============ */
 async function rpc(name, args){
@@ -1905,9 +2012,187 @@ function giveItem(t, cat, name, qty, cons){
   return true;
 }
 
+/* ============ ayuda y tutorial ============ */
+const HELP_KEYS_DM = [
+  ['＋ －', 'Zoom', 'Acerca o aleja el mapa. También con la rueda del ratón o pellizcando en el móvil.'],
+  ['⛶', 'Ajustar mapa', 'Encaja el mapa entero en la pantalla.'],
+  ['▦', 'Rejilla', 'Muestra u oculta la cuadrícula de casillas.'],
+  ['🧱', 'Muros', 'Muestra los muros importados y permite calibrar su posición sobre la imagen.'],
+  ['🌫', 'Niebla de guerra', 'Activa o desactiva la niebla: los jugadores solo ven lo que ve su personaje.'],
+  ['📱', 'QR de acceso', 'Muestra en el mapa un QR para que los jugadores entren desde el móvil.'],
+  ['☰', 'Panel lateral', 'Oculta o muestra el panel para ver el mapa más grande.'],
+  ['👁', 'Ver como jugador', 'Previsualiza exactamente lo que ven los jugadores (niebla incluida).'],
+  ['📽', 'Proyector', 'Abre una segunda ventana con la vista de jugador para la tele o el proyector.'],
+  ['🔗', 'Vista sincronizada', 'El proyector sigue tu encuadre y zoom. Desactívalo para moverlo por separado.'],
+  ['⏻', 'Salir', 'Vuelve al lobby de partidas. La partida queda guardada.'],
+  ['?', 'Ayuda', 'Abre esta ayuda o el tutorial guiado.']
+];
+const HELP_KEYS_PL = [
+  ['🧙', 'Mi PJ', 'Tu ficha: PV, CA, características, equipo, acciones de ronda e inventario.'],
+  ['🎲', 'Dados', 'Tira dados y escribe mensajes al grupo.'],
+  ['⚔', 'Iniciativa', 'Orden de turnos cuando el DM inicia un combate.'],
+  ['🎲 Mover', 'Moverte', 'Tira tu dado de movimiento y toca una casilla iluminada del mapa.'],
+  ['⚔ Atacar', 'Atacar', 'Elige un ataque (los bloqueados se abren al subir de nivel) y luego el enemigo.'],
+  ['⏭ Pasar', 'Pasar', 'Termina tu ronda sin hacer nada.'],
+  ['🛡', 'Equipar', 'Toca una armadura, escudo, arma o accesorio del inventario y pulsa «Equipar».'],
+  ['🧪', 'Usar', 'Toca un consumible (poción, ácido…) y pulsa «Beber» o «Usar contra…».'],
+  ['⤢', 'Tamaño del mapa', 'En el móvil, alterna entre mapa grande, normal o pequeño.'],
+  ['＋ ⛶', 'Zoom y ajustar', 'Acerca, aleja o encaja el mapa. También pellizcando.']
+];
+function helpKeys(list){ return list.map(([k, t, d]) => '<div class="help-key"><div class="k">' + esc(k) + '</div><div><b>' + esc(t) + '</b><span>' + esc(d) + '</span></div></div>').join(''); }
+function helpSections(){
+  const dm = S.isDM, inGame = !!S.gameId;
+  const secs = [];
+  if (!inGame) secs.push(['start', '🚪 Empezar',
+    '<h3>Entrar en una partida</h3><ol><li>Escribe tu nombre (lo verá el grupo).</li><li><b>Si eres el DM:</b> pon nombre a la partida y pulsa <b>Crear</b>. Si es privada, se genera un código que debes pasar a tus jugadores.</li><li><b>Si eres jugador:</b> pulsa <b>Entrar</b> en la partida de tu DM (o escanea el QR que te enseñe). Si es privada te pedirá el código.</li></ol>' +
+    '<div class="help-tip">💡 Desde el móvil lo más cómodo es escanear el QR que el DM muestra en el mapa: entras directamente en su partida.</div>']);
+  if (inGame && dm) secs.push(['start', '👑 Primeros pasos',
+    '<h3>Preparar la sesión</h3><ol><li><b>🗺 Mapas:</b> importa el export de Dungeon Alchemist (JSON de Foundry + imagen/vídeo, o .dd2vtt) y pulsa <b>Activar</b>.</li><li><b>♟ Tokens:</b> crea los personajes (tipo <b>PJ</b>, con clase y raza) y los monstruos (ocultos hasta que quieras revelarlos).</li><li>Pulsa <b>📱</b> para mostrar el QR; cada jugador escanea, entra y elige su personaje.</li><li>Usa <b>📽 Proyector</b> si quieres mostrar la vista de jugador en una tele.</li></ol>' +
+    '<h3>Durante la partida</h3><ul><li>Arrastra los tokens para moverlos (solo el DM puede).</li><li>Doble clic / doble toque en un token para editarlo (PV, inventario, características…).</li><li>Abre las puertas desde el mapa con los muros visibles (🧱).</li></ul>']);
+  if (inGame && !dm) secs.push(['start', '🛡 Primeros pasos',
+    '<h3>Tu personaje</h3><ol><li>En <b>🧙 Mi PJ</b> pulsa <b>Este es mi personaje</b> en el que te haya preparado el DM.</li><li>En el mapa solo verás lo que ve tu PJ: la niebla tapa lo demás.</li><li>Tu ficha muestra PV, CA, nivel, características, equipo e inventario.</li></ol>' +
+    '<div class="help-tip">💡 Quien mueve los tokens es el DM. Tú solo te mueves en tu acción de ronda.</div>']);
+  if (inGame) secs.push(['round', '⚔ Rondas',
+    '<h3>Rondas libres</h3><ol><li>El DM abre la ronda (pestaña ⚔ Iniciativa).</li><li>Cada jugador, sin orden, elige <b>una</b> acción: <b>🎲 Mover</b> (tira el dado y toca una casilla iluminada), <b>⚔ Atacar</b> (elige ataque y enemigo a tu alcance y a la vista) o <b>⏭ Pasar</b>.</li><li>Cuando todos han actuado, el DM pulsa <b>Siguiente ronda</b>.</li></ol>' +
+    '<h3>Combate</h3><ul><li>El ataque tira d20 + tu bonificador contra la CA del enemigo. Un 20 es crítico (doble daño).</li><li>Los monstruos responden: contraatacan si les golpeas a su alcance y atacan si entras en su zona con línea de visión.</li><li>A 0 PV los monstruos desaparecen y su experiencia se reparte; un PJ a 0 PV queda inconsciente y no puede actuar.</li><li>Los ataques nuevos de tu clase se desbloquean al subir de nivel.</li></ul>' +
+    (dm ? '<h3>Iniciativa clásica</h3><p>Si prefieres turnos ordenados: <b>＋ Tokens del mapa</b>, <b>🎲 Tirar iniciativas</b> e <b>Iniciar combate</b>.</p>' : '')]);
+  if (inGame) secs.push(['items', '🎒 Objetos y equipo',
+    '<h3>Inventario</h3><ul><li>5 casillas de inicio; el DM puede ampliarlas.</li><li>Toca un objeto para ver qué hace.</li><li><b>Consumibles</b> (pociones, ácido, varitas…): su efecto se aplica solo según las reglas. Las pociones de curación son acción adicional; lanzar ácido gasta tu acción de ronda.</li><li><b>Equipables</b> (armaduras, escudos, armas, anillos…): pulsa <b>Equipar</b>. Queda guardado y tu CA y tu arma se recalculan.</li><li>Los objetos <b>narrativos</b> se registran y el DM aplica el efecto.</li></ul>' +
+    (dm ? '<h3>Dar objetos</h3><p>En ♟ Tokens usa el desplegable con todos los objetos de D&D 2024 para dárselos a un PJ o a todo el grupo. En el editor del token puedes marcar ✓ lo que lleva puesto.</p>' : '') +
+    '<div class="help-tip">💡 Si escribes un objeto a mano y su nombre coincide con el catálogo (aunque falten tildes), se enlaza solo y funciona igual.</div>']);
+  secs.push(['keys', '🔘 Botones', '<h3>Para qué sirve cada botón</h3>' + helpKeys(dm ? HELP_KEYS_DM : HELP_KEYS_PL)]);
+  secs.push(['faq', '💬 Preguntas',
+    '<h3>Preguntas frecuentes</h3><ul>' +
+    '<li><b>No veo nada del mapa.</b> La niebla solo muestra lo que ve tu PJ. Comprueba que has elegido personaje en 🧙 Mi PJ.</li>' +
+    '<li><b>No puedo moverme.</b> Solo puedes moverte en tu acción de ronda cuando el DM la abre, y una vez por ronda.</li>' +
+    '<li><b>La poción no cura.</b> Debe ser una poción de curación del catálogo. El «Elixir de salud» cura estados, no PV.</li>' +
+    '<li><b>Mi CA ha cambiado.</b> La CA se calcula con el equipo puesto. Equipa tu armadura y escudo.</li>' +
+    '<li><b>Se ve pequeño en el móvil.</b> Usa <b>⤢</b> para agrandar el mapa y pellizca para hacer zoom.</li>' +
+    (dm ? '<li><b>Los jugadores no ven un token.</b> Los monstruos ocultos no se ven; los PJ deben ser de tipo PJ.</li>' : '') +
+    '</ul>']);
+  return secs;
+}
+let helpSec = null;
+function openHelp(sec){
+  const secs = helpSections();
+  const want = sec || ({ init: 'round', pj: 'start', tokens: S.isDM ? 'items' : 'start', maps: 'start', dice: 'keys' })[S.tab] || 'start';
+  helpSec = secs.find(x => x[0] === want) ? want : secs[0][0];
+  const draw = () => {
+    $('#helpTabs').innerHTML = secs.map(x => '<button data-s="' + x[0] + '"' + (x[0] === helpSec ? ' class="active"' : '') + '>' + x[1] + '</button>').join('');
+    $('#helpBody').innerHTML = secs.find(x => x[0] === helpSec)[2];
+    $$('#helpTabs button').forEach(b => b.onclick = () => { helpSec = b.dataset.s; draw(); });
+  };
+  draw();
+  $('#helpTour').style.display = S.gameId ? '' : 'none';
+  if ($('#tourAsk').classList.contains('open')){ $('#tourAsk').classList.remove('open'); lsSet('vtt_tour_' + (S.isDM ? 'dm' : 'pl'), 1); }
+  $('#helpModal').classList.add('open');
+}
+$('#btnHelp').onclick = () => openHelp();
+$('#lobbyHelp').onclick = () => openHelp('start');
+$('#helpClose').onclick = () => $('#helpModal').classList.remove('open');
+$('#helpModal').addEventListener('click', e => { if (e.target.id === 'helpModal') $('#helpModal').classList.remove('open'); });
+$('#helpTour').onclick = () => { $('#helpModal').classList.remove('open'); startTour(); };
+
+function tourSteps(){
+  const tab = n => () => selectTab(n);
+  const common0 = [{ sel: '#btnHelp', t: 'Ayuda siempre a mano', d: 'Este botón abre la ayuda: para qué sirve cada botón, cómo funcionan las rondas y los objetos, y este tutorial.' }];
+  if (S.isDM) return common0.concat([
+    { sel: '#tabs', t: 'Pestañas del DM', d: 'Aquí organizas la partida: Mapas, Tokens, Iniciativa (y rondas) y Dados.' },
+    { sel: '#tabMapsBtn', t: '1 · Importa un mapa', d: 'Sube el export de Dungeon Alchemist (JSON de Foundry + imagen, o .dd2vtt). Luego pulsa «Activar» para que todos lo vean.', pre: tab('maps') },
+    { sel: '#tabs button[data-tab="tokens"]', t: '2 · Crea los tokens', d: 'Crea los PJ (tipo PJ, con clase y raza) y los monstruos. Los monstruos ocultos no los ven los jugadores. También aquí das objetos al grupo.', pre: tab('tokens') },
+    { sel: '#tabs button[data-tab="init"]', t: '3 · Rondas y combate', d: 'Abre una ronda: cada jugador hace una acción (mover, atacar o pasar) desde su móvil. Cuando acaben todos, pasa a la siguiente.', pre: tab('init') },
+    { sel: '#stage', t: 'El mapa', d: 'Arrastra el fondo para desplazarte, rueda o pellizco para el zoom. Arrastra un token para moverlo; doble clic para editarlo.' },
+    { sel: '#stageTools', t: 'Herramientas del mapa', d: 'Zoom, ajustar, rejilla, muros (🧱) y niebla de guerra (🌫).' },
+    { sel: '#btnQR', t: 'QR para los jugadores', d: 'Muestra un QR en el mapa. Los jugadores lo escanean con el móvil y entran directamente a elegir su personaje.' },
+    { sel: '#btnViewAs', t: 'Ver como jugador', d: 'Comprueba lo que ven los jugadores, niebla incluida.' },
+    { sel: '#btnProjector', t: 'Proyector', d: 'Abre una segunda ventana con la vista de jugador para la tele o el proyector.' },
+    { sel: '#sidebarToggle', t: 'Más espacio', d: 'Oculta el panel lateral para ver el mapa más grande.' },
+    { sel: '#btnMapSize', t: 'Tamaño del mapa', d: 'En pantallas pequeñas, alterna entre mapa grande, normal o pequeño.' }
+  ]);
+  return common0.concat([
+    { sel: '#tabPjBtn', t: 'Tu personaje', d: 'Aquí está tu ficha. Si aún no tienes, pulsa «Este es mi personaje» en el que te haya preparado el DM.', pre: tab('pj') },
+    { sel: '.sheet-head', t: 'Tu ficha', d: 'PV, CA, nivel y competencia. Debajo, tus características y la barra de experiencia.' },
+    { sel: '.act-grid', t: 'Tu acción de ronda', d: 'Cuando el DM abre la ronda eliges UNA acción: 🎲 Mover (tira y toca una casilla iluminada), ⚔ Atacar o ⏭ Pasar.' },
+    { sel: '.inv-grid', t: 'Inventario', d: 'Toca un objeto para verlo. Las pociones se beben con «Beber»; armaduras y armas se ponen con «Equipar» y quedan guardadas.' },
+    { sel: '#stage', t: 'El mapa', d: 'Solo ves lo que ve tu personaje. Pellizca para hacer zoom y arrastra para moverte por el mapa.' },
+    { sel: '#btnMapSize', t: 'Tamaño del mapa', d: 'En el móvil, alterna entre mapa grande, normal o pequeño.' },
+    { sel: '#tabs button[data-tab="dice"]', t: 'Dados y chat', d: 'Tira cualquier dado y escribe mensajes al grupo.' }
+  ]);
+}
+const tour = { steps: [], i: 0 };
+function visibleEl(sel){
+  const el = document.querySelector(sel);
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  if (!r.width || !r.height || getComputedStyle(el).visibility === 'hidden') return null;
+  return el;
+}
+function startTour(){
+  tour.steps = tourSteps(); tour.i = 0;
+  $('#tourAsk').classList.remove('open');
+  lsSet('vtt_tour_' + (S.isDM ? 'dm' : 'pl'), 1);
+  $('#tourLayer').classList.add('open');
+  showTourStep(1);
+}
+function endTour(){ $('#tourLayer').classList.remove('open'); }
+function showTourStep(dir){
+  while (tour.i >= 0 && tour.i < tour.steps.length){
+    const st = tour.steps[tour.i];
+    if (st.pre) st.pre();
+    const el = visibleEl(st.sel);
+    if (el){ placeTour(el, st); return; }
+    tour.i += dir;
+  }
+  endTour();
+}
+function placeTour(el, st){
+  if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+  const r = el.getBoundingClientRect(), pad = 6;
+  const sp = $('#tourSpot');
+  sp.style.left = (r.left - pad) + 'px'; sp.style.top = (r.top - pad) + 'px';
+  sp.style.width = (r.width + pad * 2) + 'px'; sp.style.height = (r.height + pad * 2) + 'px';
+  $('#tourTitle').textContent = st.t; $('#tourText').textContent = st.d;
+  const n = tour.steps.length;
+  $('#tourDots').textContent = 'Paso ' + (tour.i + 1) + ' de ' + n;
+  $('#tourPrev').disabled = tour.i === 0;
+  $('#tourNext').textContent = tour.i >= n - 1 ? '¡Listo! ✓' : 'Siguiente →';
+  const card = $('#tourCard'), vw = window.innerWidth, vh = window.innerHeight;
+  const cw = card.offsetWidth || 320, ch = card.offsetHeight || 170;
+  let top = r.bottom + 12;
+  if (top + ch > vh - 8) top = r.top - ch - 12;
+  if (top < 8) top = Math.max(8, Math.min(vh - ch - 8, r.top + r.height / 2 - ch / 2));
+  if (r.height > vh * 0.5) top = Math.max(8, vh / 2 - ch / 2);
+  let left = r.left + r.width / 2 - cw / 2;
+  left = Math.max(12, Math.min(vw - cw - 12, left));
+  card.style.top = top + 'px'; card.style.left = left + 'px';
+}
+$('#tourNext').onclick = () => { if (tour.i >= tour.steps.length - 1) return endTour(); tour.i++; showTourStep(1); };
+$('#tourPrev').onclick = () => { if (tour.i > 0){ tour.i--; showTourStep(-1); } };
+$('#tourSkip').onclick = endTour;
+$('#tourBlock').onclick = () => $('#tourNext').click();
+window.addEventListener('resize', () => { if ($('#tourLayer').classList.contains('open')) showTourStep(1); });
+document.addEventListener('keydown', e => {
+  if ($('#tourLayer').classList.contains('open')){
+    if (e.key === 'Escape') endTour(); else if (e.key === 'ArrowRight') $('#tourNext').click(); else if (e.key === 'ArrowLeft') $('#tourPrev').click();
+  } else if (e.key === 'Escape') $('#helpModal').classList.remove('open');
+});
+function maybeOfferTour(){
+  if (S.projector || !S.gameId || lsGet('vtt_tour_' + (S.isDM ? 'dm' : 'pl'))) return;
+  setTimeout(() => { if (S.gameId && !$('#tourLayer').classList.contains('open')) $('#tourAsk').classList.add('open'); }, 1200);
+}
+$('#tourAskYes').onclick = () => startTour();
+$('#tourAskNo').onclick = () => { $('#tourAsk').classList.remove('open'); lsSet('vtt_tour_' + (S.isDM ? 'dm' : 'pl'), 1); toast('Cuando quieras, pulsa ? para ver la ayuda o el tutorial'); };
+
 /* Modo móvil */
-S.phone = !!S.join || (window.matchMedia && window.matchMedia('(max-width: 700px)').matches);
-if (S.phone && !S.projector) document.body.classList.add('phone');
+function updatePhoneMode(){
+  const narrow = !!(window.matchMedia && (window.matchMedia('(max-width: 860px)').matches || window.matchMedia('(max-height: 520px) and (max-width: 1000px)').matches));
+  const was = S.phone;
+  S.phone = !S.projector && narrow;
+  document.body.classList.toggle('phone', S.phone);
+  if (was !== S.phone){ setTimeout(resizeCanvas, 50); if (S.gameId) updateQR(); }
+}
+updatePhoneMode();
+window.addEventListener('resize', updatePhoneMode);
 
 /* ============ proyector (segunda pantalla) ============ */
 let projBC = null;

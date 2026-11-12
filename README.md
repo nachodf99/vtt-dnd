@@ -82,6 +82,11 @@ Copia `config.local.example.js` como `config.local.js` con las claves del proyec
 - La ficha muestra las 6 características, el equipo puesto y el desglose de la CA. El DM edita las características y un ajuste de CA en el modal del token.
 - Los objetos escritos a mano se enlazan solos con el catálogo si el nombre coincide (sin importar tildes ni mayúsculas); si no, se marcan como «personalizado» sin efecto automático.
 
+## Pantallas y ayuda
+- Diseño adaptable: en ordenador, panel lateral (se oculta con ☰); en móvil o pantalla estrecha, panel y mapa apilados (⤢ cambia el tamaño del mapa); en móvil horizontal, lado a lado.
+- Botón **?** en la cabecera (y «❓ Ayuda» en el lobby): ayuda por secciones según seas DM o jugador, explicación de cada botón y preguntas frecuentes.
+- **Tutorial guiado** que resalta cada parte de la pantalla. Se ofrece la primera vez que entras a una partida (una vez como DM y otra como jugador).
+
 ## Permisos (RLS)
 
 - **Identidad**: sesión anónima de Supabase, persistida en el navegador. Quien crea una partida es su DM (no borres los datos del sitio en el navegador del DM o perderá esa identidad).
