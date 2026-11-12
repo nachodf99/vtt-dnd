@@ -166,6 +166,9 @@ body.projector #qrBox img{width:210px; height:210px}
 .atk-opt.locked{opacity:.45; cursor:not-allowed}
 .atk-opt .meta{font-size:11px; color:var(--ink-dim)}
 .ko{color:#e07a6a; font-weight:700}
+.item-desc{font-size:12px; color:var(--ink-dim); margin-top:4px; line-height:1.35}
+.fx-tag{display:inline-block; font-size:10px; padding:1px 6px; border-radius:8px; border:1px solid var(--line); margin-left:4px; color:var(--accent)}
+.tkMonOnly{}
 /* Modo móvil (jugador por QR o pantalla estrecha) */
 body.phone main{flex-direction:column}
 body.phone #stage{flex:none; height:46vh}
@@ -325,6 +328,11 @@ body.phone #tabs button{padding:9px 2px; font-size:12px}
       <div class="field"><label>Alcance</label><input type="number" id="tkRange" value="1" min="1" style="width:60px"></div>
       <div class="field tkPcOnly"><label>Dado mov.</label><input id="tkMove" value="1d6" style="width:66px"></div>
     </div>
+    <div class="row tkMonOnly">
+      <div class="field"><label>Tipo de criatura</label><select id="tkCtype"></select></div>
+      <div class="field"><label>Salv. Des (+)</label><input type="number" id="tkSaveB" value="1" style="width:60px"></div>
+      <label class="row" style="gap:4px; align-self:flex-end; margin-bottom:12px"><input type="checkbox" id="tkBurn" style="width:auto"> 🔥 Ardiendo</label>
+    </div>
     <div class="row">
       <div class="field"><label id="tkXpLbl">XP</label><input type="number" id="tkXp" min="0" placeholder="auto" style="width:90px"></div>
       <div class="mini grow" id="tkXpHint" style="align-self:center"></div>
@@ -333,7 +341,7 @@ body.phone #tabs button{padding:9px 2px; font-size:12px}
       <div class="row between"><b>🎒 Inventario</b><label class="row" style="gap:4px">Casillas <input type="number" id="tkSlots" value="5" min="1" max="40" style="width:56px"></label></div>
       <div id="tkInvList" style="margin-top:6px"></div>
       <div class="row" style="margin-top:4px">
-        <input id="tkInvName" class="grow" placeholder="Nuevo objeto (p. ej. Poción de curación)">
+        <input id="tkInvName" class="grow" list="itemList" placeholder="Busca un objeto 5e o escribe uno propio…">
         <input type="number" id="tkInvQty" value="1" min="1" style="width:52px">
         <label class="row" style="gap:3px"><input type="checkbox" id="tkInvCons" style="width:auto"> consumible</label>
         <button class="small" id="tkInvAdd">＋</button>
@@ -359,6 +367,7 @@ body.phone #tabs button{padding:9px 2px; font-size:12px}
   </div>
 </div>
 
+<datalist id="itemList"></datalist>
 <div id="toasts"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
@@ -403,6 +412,7 @@ const S = {
   join: new URLSearchParams(location.search).get('unirse') || null,
   phone: false, attackPick: false, invSel: null, reach: [], busy: false, tkInv: null,
   attacks: [], atkSel: null, lastLevel: {}, lastHp: {},
+  items: [], itemById: {}, itemTarget: null,
   drag: null, pan: null, pings: [], peers: [],
   visPolys: [], fogDirty: true, explored: {},
   editingToken: null, pendingImport: null,
@@ -428,6 +438,7 @@ const RACES = ['Humano','Elfo','Enano','Mediano','Gnomo','Semielfo','Semiorco','
 const XP_LEVELS = [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500];
 function levelFor(xp){ let l = 1; for (let i = 1; i < XP_LEVELS.length; i++) if ((xp || 0) >= XP_LEVELS[i]) l = i + 1; return l; }
 function levelOf(t){ return Math.max(t.level || 1, levelFor(t.xp || 0)); }
+const CTYPES = ['Aberración','Bestia','Celestial','Cieno','Constructo','Dragón','Elemental','Feérico','Gigante','Humanoide','Infernal','Monstruosidad','No muerto','Planta'];
 const ACTION_LABEL = { move: 'Movimiento', attack: 'Ataque', pass: 'Pasó turno' };
 function raceCls(t){ return [t.race, (CLASSES[t.cls] || {}).n].filter(Boolean).join(' · ') || 'Sin clase'; }
 const COLORS = ['#8c2b2b','#3d6b8f','#4e8c4a','#8a6d1d','#6b3f8f','#b4632e','#2e8f8a','#8f2e6b'];
@@ -576,6 +587,12 @@ async function getConfig(){
     }
     S.uid = session.user.id;
     DB = makeSupaDB();
+    SB.from('items').select('*').then(({ data }) => {
+      S.items = (data || []).sort((a, b) => a.cat.localeCompare(b.cat) || a.name.localeCompare(b.name));
+      S.itemById = {}; S.items.forEach(i => { S.itemById[i.id] = i; });
+      $('#itemList').innerHTML = S.items.map(i => '<option value="' + esc(i.name) + '">' + esc(i.cat + (i.rarity ? ' · ' + i.rarity : '') + (i.fx && i.fx.t !== 'note' ? ' · ⚡ automático' : '') + ' · ' + (i.en || '')) + '</option>').join('');
+      renderPanel();
+    });
     SB.from('attacks').select('*').then(({ data }) => { S.attacks = (data || []).sort((a, b) => a.lvl - b.lvl || a.name.localeCompare(b.name)); renderPanel(); });
     if (cfg.env && cfg.env !== 'production'){
       const eb = $('#envBadge'); eb.style.display = ''; eb.textContent = '🧪 ' + (cfg.env === 'preview' ? 'PREPRODUCCIÓN' : cfg.env.toUpperCase());
@@ -1215,6 +1232,10 @@ function drawToken(t, m, ghost){
   ctx.fillRect(x - tw / 2 - 5, y + r + 4, tw + 10, g * 0.3);
   ctx.fillStyle = '#fff';
   ctx.fillText(t.name || '', x, y + r + 4 + g * 0.15);
+  if (t.burning){
+    ctx.font = (r * 0.8) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🔥', x + r * 0.75, y - r * 0.75);
+  }
   const c = (gameDoc() || {}).combat;
   if (c && c.active && c.entries[c.turn] && c.entries[c.turn].tokenId === t.id){
     ctx.strokeStyle = '#c9a227'; ctx.lineWidth = Math.max(2.5, g * 0.05);
@@ -1431,6 +1452,12 @@ function attackOptions(t){
   if (!list.length) return [{ id: 'basic', name: 'Ataque básico', lvl: 1, range: t.range || 1, dmg: t.dmg || '1d6', atk_bonus: 0, descr: '' }];
   return list;
 }
+function fxTag(cat){
+  const fx = cat && cat.fx;
+  if (!fx || fx.t === 'note') return cat && cat.consumable ? '<span class="fx-tag" style="color:var(--ink-dim)">narrativo</span>' : '';
+  if (fx.t === 'heal') return '<span class="fx-tag">⚡ cura ' + esc(fx.dice) + '</span>';
+  return '<span class="fx-tag">⚡ ' + esc(fx.dice) + ' ' + esc(fx.dtype || '') + (fx.mode === 'save' ? ' · salv. Des' : fx.mode === 'auto' ? ' · impacta siempre' : '') + '</span>';
+}
 function xpBarHtml(t){
   const xp = t.xp || 0, l = levelOf(t);
   if (l >= 10) return '<div class="mini" style="margin-top:8px">⭐ ' + xp + ' XP · nivel máximo</div>';
@@ -1538,9 +1565,29 @@ function renderPjPanel(p){
   html += '</div>';
   const sel = items.find(it => it.id === S.invSel);
   if (sel){
-    html += '<div class="card" style="margin-top:8px"><b>' + esc(sel.name) + '</b>' + ((sel.qty || 1) > 1 ? ' ×' + sel.qty : '') +
-      (sel.consumable ? ' <span class="mini">(consumible)</span>' : '') +
-      '<div class="row" style="margin-top:6px"><button class="small primary" id="invUse">' + (sel.consumable ? 'Usar' : 'Usar / mostrar') + '</button><button class="small" id="invDrop">Tirar</button></div></div>';
+    const cat = sel.itemId ? S.itemById[sel.itemId] : null;
+    const fx = (cat && cat.fx) || sel.fx || { t: 'note' };
+    const rd2 = (gameDoc() || {}).round || {};
+    const canAct = rd2.active && !(rd2.done || {})[mine.id] && !(rd2.pending || {})[mine.id] && !ko;
+    const useLbl = fx.t === 'heal' ? '🧪 Beber (acción adicional)' : fx.t === 'dmg' ? '💥 Usar contra…' : (sel.consumable ? 'Usar' : 'Usar / mostrar');
+    html += '<div class="card" style="margin-top:8px"><b>' + esc(sel.name) + '</b>' + ((sel.qty || 1) > 1 || (fx.keep) ? ' ×' + (sel.qty || 0) + (fx.keep ? ' cargas' : '') : '') +
+      (cat ? fxTag(cat) : '') +
+      (cat && cat.descr ? '<div class="item-desc">' + esc(cat.descr) + '</div>' : '') +
+      (fx.t === 'dmg' ? '<div class="item-desc">Gasta tu acción de la ronda · alcance ' + (fx.range || 4) + ' casillas</div>' : '') +
+      '<div class="row" style="margin-top:6px"><button class="small primary" id="invUse"' + (fx.t === 'dmg' && !canAct ? ' disabled' : '') + (ko ? ' disabled' : '') + '>' + useLbl + '</button><button class="small" id="invDrop">Tirar</button></div>' +
+      (fx.t === 'dmg' && !canAct && !ko ? '<div class="mini" style="margin-top:4px">Necesitas tener tu acción de la ronda disponible.</div>' : '');
+    if (fx.t === 'dmg' && S.itemTarget === sel.id && canAct){
+      const rng = fx.range || 4;
+      const tg = gameTokens(m.id).filter(t => t.type === 'monster' && !t.hidden && tokenVisibleToPlayers(t))
+        .map(t => ({ t, d: Math.round(Math.max(Math.abs(t.x - mine.x), Math.abs(t.y - mine.y)) / g) })).sort((a, b) => a.d - b.d);
+      html += '<div class="mini" style="margin-top:8px">Objetivo (alcance ' + rng + '):</div>';
+      if (!tg.length) html += '<div class="muted">No ves ningún enemigo.</div>';
+      tg.forEach(({ t, d }) => {
+        const ok = d <= rng;
+        html += '<div class="tgt"><div><b>' + esc(t.name) + '</b> <span class="mini">a ' + d + '</span></div><button class="small ' + (ok ? 'primary ' : '') + 'item-go" data-tid="' + t.id + '"' + (ok ? '' : ' disabled') + '>' + (ok ? '💥 Usar' : 'Lejos') + '</button></div>';
+      });
+    }
+    html += '</div>';
   }
   p.innerHTML = html;
   bindTokenPanel();
@@ -1584,8 +1631,27 @@ function renderPjPanel(p){
   });
   $$('.slot.full').forEach(el => el.onclick = () => { S.invSel = (S.invSel === el.dataset.iid) ? null : el.dataset.iid; renderPanel(); });
   const iu = $('#invUse'); if (iu) iu.onclick = async () => {
-    try { await rpc('inv_use', { tid: mine.id, iid: S.invSel }); toast('🎒 Usas ' + sel.name); } catch(e){ toast(e.message, true); }
+    const cat = sel.itemId ? S.itemById[sel.itemId] : null;
+    const fx = (cat && cat.fx) || sel.fx || { t: 'note' };
+    if (fx.t === 'dmg'){ S.itemTarget = (S.itemTarget === sel.id) ? null : sel.id; renderPanel(); return; }
+    iu.disabled = true;
+    try {
+      const r = await rpc('item_use', { tid: mine.id, iid: S.invSel, target: null });
+      if (r.t === 'heal') toast('🧪 ' + r.name + ': +' + r.heal + ' PV (' + r.hp + '/' + r.hpMax + ')');
+      else toast('🎒 Usas ' + r.name + (r.descr ? ' — ' + r.descr : ''));
+      if ((r.qty || 0) <= 0) S.invSel = null;
+    } catch(e){ toast(e.message, true); iu.disabled = false; }
   };
+  $$('.item-go').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try {
+      const r = await rpc('item_use', { tid: mine.id, iid: S.invSel, target: b.dataset.tid });
+      S.itemTarget = null;
+      toast('💥 ' + r.name + ' contra ' + r.target + ': ' + (r.immune ? 'no le afecta' : r.mode === 'auto' ? r.dmg + ' de daño' : (r.saved ? 'supera la salvación' : 'falla la salvación') + ' → ' + r.dmg + ' de daño') + (r.burn ? ' · 🔥 ¡arde!' : '') + ' · +' + r.xp + ' XP');
+      if (r.dead) setTimeout(() => toast('💀 ¡' + r.target + ' ha muerto!'), 600);
+      if (r.counter) setTimeout(() => toast(reactionText(r.counter), !!r.counter.hit), 1200);
+    } catch(e){ toast(e.message, true); b.disabled = false; }
+  });
   const idr = $('#invDrop'); if (idr) idr.onclick = () => armConfirm(idr, async () => {
     try { await rpc('inv_drop', { tid: mine.id, iid: S.invSel }); S.invSel = null; toast('Has tirado ' + sel.name); } catch(e){ toast(e.message, true); }
   });
@@ -1618,7 +1684,14 @@ function bindRoundCtl(){
   const nx = $('#rdNext'); if (nx) nx.onclick = () => {
     const rd = (gameDoc() || {}).round || {}, m = activeMap();
     const pcs = m ? gameTokens(m.id).filter(t => t.type === 'pc' && !t.hidden) : [];
-    const go = () => { saveGame({ round: { active: true, n: (rd.n || 1) + 1, done: {}, pending: {} } }); toast('🎲 Ronda ' + ((rd.n || 1) + 1)); };
+    const go = async () => {
+      try {
+        const burned = S.localMode ? [] : await rpc('dm_round_tick', { gid: S.gameId });
+        (burned || []).forEach((b, i) => setTimeout(() => toast('🔥 ' + b.name + ' arde: ' + b.dmg + ' de fuego' + (b.hp <= 0 ? ' 💀' : '')), 400 * (i + 1)));
+      } catch(e){ toast('Ardiendo: ' + e.message, true); }
+      const g2 = gameDoc() || {}, rd2 = g2.round || rd;
+      saveGame({ round: { active: true, n: (rd2.n || 1) + 1, done: {}, pending: {} } }); toast('🎲 Ronda ' + ((rd2.n || 1) + 1));
+    };
     if (pcs.every(t => (rd.done || {})[t.id])) go(); else armConfirm(nx, go);
   };
   const sp = $('#rdStop'); if (sp) sp.onclick = () => armConfirm(sp, () => saveGame({ round: { active: false, n: 0, done: {}, pending: {} } }));
@@ -1653,6 +1726,9 @@ function askName(cb){
   inp.onkeydown = e => { if (e.key === 'Enter') ok(); };
 }
 /* Editor de inventario (DM) y campos por tipo de token */
+(function initCtypes(){
+  $('#tkCtype').innerHTML = '<option value="">— Sin tipo —</option>' + CTYPES.map(c => '<option value="' + c.toLowerCase() + '">' + c + '</option>').join('');
+})();
 (function initTokenSelects(){
   $('#tkCls').innerHTML = '<option value="">— Sin clase —</option>' + Object.entries(CLASSES).map(([k, c]) => '<option value="' + k + '">' + c.n + '</option>').join('');
   $('#tkRace').innerHTML = '<option value="">— Sin raza —</option>' + RACES.map(r => '<option>' + r + '</option>').join('');
@@ -1660,6 +1736,7 @@ function askName(cb){
 function toggleTkFields(){
   const pc = $('#tkType').value === 'pc';
   $$('.tkPcOnly').forEach(el => el.style.display = pc ? '' : 'none');
+  $$('.tkMonOnly').forEach(el => el.style.display = $('#tkType').value === 'monster' ? '' : 'none');
   $('#tkXpLbl').textContent = pc ? 'XP acumulada' : 'XP al morir';
   updateXpHint();
 }
@@ -1692,11 +1769,31 @@ $('#tkInvAdd').onclick = () => {
   const name = $('#tkInvName').value.trim(); if (!name) return;
   const slots = Math.max(1, parseInt($('#tkSlots').value) || 5);
   if ((S.tkInv.items || []).length >= slots){ toast('Inventario lleno: amplía las casillas', true); return; }
-  S.tkInv.items.push({ id: uuid(), name, qty: Math.max(1, parseInt($('#tkInvQty').value) || 1), consumable: $('#tkInvCons').checked });
+  const cat = findItem(name);
+  S.tkInv.items.push(cat
+    ? { id: uuid(), itemId: cat.id, name: cat.name, qty: Math.max(1, parseInt($('#tkInvQty').value) || cat.qty || 1), consumable: !!cat.consumable }
+    : { id: uuid(), name, qty: Math.max(1, parseInt($('#tkInvQty').value) || 1), consumable: $('#tkInvCons').checked });
   $('#tkInvName').value = ''; $('#tkInvQty').value = 1; $('#tkInvCons').checked = false;
   renderInvEditor();
 };
 $('#tkInvName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#tkInvAdd').click(); });
+$('#tkInvName').addEventListener('input', () => {
+  const cat = findItem($('#tkInvName').value);
+  if (cat){ $('#tkInvQty').value = cat.qty || 1; $('#tkInvCons').checked = !!cat.consumable; }
+});
+function findItem(name){
+  const n = (name || '').trim().toLowerCase(); if (!n) return null;
+  return S.items.find(i => i.name.toLowerCase() === n || (i.en || '').toLowerCase() === n) || null;
+}
+function giveItem(t, cat, name, qty, cons){
+  const inv = JSON.parse(JSON.stringify(t.inventory || { slots: 5, items: [] }));
+  inv.items = inv.items || [];
+  if (inv.items.length >= (inv.slots || 5)) return false;
+  inv.items.push(cat ? { id: uuid(), itemId: cat.id, name: cat.name, qty: Math.max(1, qty || cat.qty || 1), consumable: !!cat.consumable }
+                     : { id: uuid(), name, qty: Math.max(1, qty || 1), consumable: !!cons });
+  DB.doc('tokens/' + t.id).update({ inventory: inv }).catch(e => toast(e.message || e, true));
+  return true;
+}
 
 /* Modo móvil */
 S.phone = !!S.join || (window.matchMedia && window.matchMedia('(max-width: 700px)').matches);
@@ -1867,6 +1964,14 @@ function renderTokensPanel(p){
   let html = '';
   if (S.isDM) html += '<button class="primary" id="btnNewToken" style="width:100%"' + (m ? '' : ' disabled') + '>＋ Nuevo token</button>';
   if (S.isDM && m){
+    const pcsAll = gameTokens(m.id).filter(t => t.type === 'pc');
+    if (pcsAll.length){
+      html += '<div class="card" style="margin-top:8px"><div class="section-title" style="margin-top:0">🎁 Repartir objeto</div>' +
+        '<div class="row"><input id="giveName" class="grow" list="itemList" placeholder="Busca entre ' + (S.items.length || 'los') + ' objetos 5e…"><input type="number" id="giveQty" min="1" value="1" style="width:56px"></div>' +
+        '<div class="row" style="margin-top:6px"><select id="giveTo" class="grow"><option value="*">Todo el grupo (' + pcsAll.length + ' PJs)</option>' +
+        pcsAll.map(t => '<option value="' + t.id + '">' + esc(t.name) + (t.ownerName ? ' (' + esc(t.ownerName) + ')' : '') + '</option>').join('') +
+        '</select><button class="primary small" id="giveBtn">Dar</button></div><div class="item-desc" id="giveDesc"></div></div>';
+    }
     const avail = gameTokens(m.id).filter(t => t.type === 'pc' && !t.hidden);
     if (!avail.length) html += '<div class="card" style="margin-top:8px; border-color:var(--accent)"><div class="mini">⚠ Tus jugadores no tienen ningún personaje que elegir: crea tokens de tipo <b>Personaje (PJ)</b> y que no estén ocultos (🙈).</div></div>';
   }
@@ -1906,7 +2011,8 @@ function renderTokensPanel(p){
         '<div class="row grow" style="cursor:pointer">' + dot +
         '<div class="grow"><b>' + esc(t.name) + '</b>' + (t.hidden ? ' <span class="mini">(oculto)</span>' : '') +
         '<div class="mini">' + (t.type === 'pc' ? esc(raceCls(t)) + ' · Nv ' + levelOf(t) + ' · ' : '') + 'PV ' + (t.hp || 0) + '/' + (t.hpMax || 0) + (S.isDM && t.ac ? ' · CA ' + t.ac : '') +
-        (S.isDM && t.type === 'monster' ? ' · ⚔ +' + (t.atk == null ? 3 : t.atk) + ' ' + esc(t.dmg || '1d6+1') + ' a ' + (t.range || 1) : '') +
+        (S.isDM && t.type === 'monster' ? ' · ⚔ +' + (t.atk == null ? 3 : t.atk) + ' ' + esc(t.dmg || '1d6+1') + ' a ' + (t.range || 1) + (t.ctype ? ' · ' + esc(t.ctype) : '') : '') +
+        (t.burning ? ' · 🔥' : '') +
         (t.type === 'pc' ? (t.ownerId ? ' · 🎮 ' + esc(t.ownerId === S.uid ? 'tú' : (t.ownerName || 'Jugador')) : ' · <i>libre</i>') : '') + '</div></div></div>' +
         '<div class="row">' +
         (S.isDM ? '<button class="small t-hp" data-d="-1" data-tid="' + t.id + '">−</button><button class="small t-hp" data-d="1" data-tid="' + t.id + '">＋</button>' +
@@ -1924,6 +2030,25 @@ function renderTokensPanel(p){
 }
 function bindTokenPanel(){
   const bn = $('#btnNewToken'); if (bn) bn.onclick = () => openTokenModal(null);
+  const gn = $('#giveName');
+  if (gn){
+    gn.oninput = () => {
+      const cat = findItem(gn.value);
+      $('#giveDesc').innerHTML = cat ? '<b>' + esc(cat.cat) + (cat.rarity ? ' · ' + esc(cat.rarity) : '') + '</b> ' + esc(cat.descr || '') + fxTag(cat) : '';
+      if (cat) $('#giveQty').value = cat.qty || 1;
+    };
+    $('#giveBtn').onclick = () => {
+      const name = gn.value.trim(); if (!name) return;
+      const cat = findItem(name), qty = parseInt($('#giveQty').value) || 1, to = $('#giveTo').value;
+      const m = activeMap(); if (!m) return;
+      const targets = to === '*' ? gameTokens(m.id).filter(t => t.type === 'pc') : [S.tokens[to]].filter(Boolean);
+      let ok = 0; const full = [];
+      targets.forEach(t => { if (giveItem(t, cat, name, qty, false)) ok++; else full.push(t.name); });
+      toast('🎁 ' + (cat ? cat.name : name) + (qty > 1 ? ' ×' + qty : '') + ' → ' + ok + ' PJ' + (ok === 1 ? '' : 's') + (full.length ? ' · inventario lleno: ' + full.join(', ') : ''), !!full.length);
+      if (!cat) toast('Objeto personalizado: sin efecto automático');
+      gn.value = ''; $('#giveDesc').innerHTML = '';
+    };
+  }
   $$('.t-claim').forEach(b => b.onclick = async () => {
     b.disabled = true;
     if (S.localMode){
@@ -1993,6 +2118,9 @@ function openTokenModal(id){
   $('#tkAtk').value = t && t.atk != null ? t.atk : 3;
   $('#tkDmg').value = t ? (t.dmg || '1d6') : '1d6';
   $('#tkXp').value = t && t.xp != null ? t.xp : '';
+  $('#tkCtype').value = t ? (t.ctype || '') : '';
+  $('#tkSaveB').value = t && t.save != null ? t.save : 1;
+  $('#tkBurn').checked = !!(t && t.burning);
   $('#tkRange').value = t ? (t.range || 1) : 1;
   $('#tkMove').value = t ? (t.moveDie || '1d6') : '1d6';
   S.tkInv = JSON.parse(JSON.stringify((t && t.inventory) || { slots: 5, items: [] }));
@@ -2042,6 +2170,11 @@ $('#tkSave').onclick = async () => {
     const xpv = $('#tkXp').value;
     if (t.type === 'pc'){ t.xp = Math.max(0, parseInt(xpv) || 0); t.level = Math.max(levelFor(t.xp), old && old.xp === t.xp ? (old.level || 1) : 1); }
     else if (xpv !== '') t.xp = Math.max(0, parseInt(xpv) || 0);
+    if (t.type === 'monster'){
+      t.ctype = $('#tkCtype').value || '';
+      t.save = parseInt($('#tkSaveB').value) || 0;
+      t.burning = $('#tkBurn').checked;
+    }
     if (t.type === 'pc'){
       const inv = { slots: Math.max(1, parseInt($('#tkSlots').value) || 5), items: (S.tkInv.items || []).filter(i => (i.name || '').trim()) };
       if (inv.items.length > inv.slots){ toast('Hay ' + inv.items.length + ' objetos y solo ' + inv.slots + ' casillas: amplía el inventario', true); btn.disabled = false; return; }
