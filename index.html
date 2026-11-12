@@ -169,6 +169,21 @@ body.projector #qrBox img{width:210px; height:210px}
 .item-desc{font-size:12px; color:var(--ink-dim); margin-top:4px; line-height:1.35}
 .fx-tag{display:inline-block; font-size:10px; padding:1px 6px; border-radius:8px; border:1px solid var(--line); margin-left:4px; color:var(--accent)}
 .tkMonOnly{}
+.abil-row{display:grid; grid-template-columns:repeat(6,1fr); gap:4px; margin-top:8px}
+.abil{background:#141009; border:1px solid var(--line); border-radius:8px; padding:4px 2px; text-align:center}
+.abil span{display:block; font-size:9.5px; color:var(--ink-dim); letter-spacing:.5px}
+.abil b{display:block; font-size:15px; color:#fff}
+.abil i{font-style:normal; font-size:11px; color:var(--accent)}
+.abil.up{border-color:var(--accent)}
+.eq-row{display:flex; justify-content:space-between; gap:8px; padding:5px 0; border-bottom:1px solid var(--line); font-size:13px}
+.eq-row:last-child{border-bottom:none}
+.eq-row .k{color:var(--ink-dim); white-space:nowrap}
+.eq-row .v{text-align:right}
+.slot.eqd{border-color:var(--ok); box-shadow:inset 0 0 0 1px var(--ok)}
+.slot .eqm{font-size:10px; color:#9fd49a; font-weight:700}
+.note-warn{font-size:12px; color:#e0b46a; margin-top:4px}
+.tk-abil{display:grid; grid-template-columns:repeat(6,1fr); gap:4px}
+.tk-abil input{width:100%; text-align:center; padding:5px 2px}
 /* Modo móvil (jugador por QR o pantalla estrecha) */
 body.phone main{flex-direction:column}
 body.phone #stage{flex:none; height:46vh}
@@ -322,7 +337,7 @@ body.phone #tabs button{padding:9px 2px; font-size:12px}
       <div class="field"><label>Raza</label><select id="tkRace"></select></div>
     </div>
     <div class="row">
-      <div class="field"><label>CA</label><input type="number" id="tkAc" value="12" min="1" style="width:60px"></div>
+      <div class="field"><label id="tkAcLbl">CA</label><input type="number" id="tkAc" value="12" style="width:60px"></div>
       <div class="field"><label>Ataque (+)</label><input type="number" id="tkAtk" value="3" style="width:60px"></div>
       <div class="field"><label>Daño</label><input id="tkDmg" value="1d6" style="width:76px"></div>
       <div class="field"><label>Alcance</label><input type="number" id="tkRange" value="1" min="1" style="width:60px"></div>
@@ -336,6 +351,18 @@ body.phone #tabs button{padding:9px 2px; font-size:12px}
     <div class="row">
       <div class="field"><label id="tkXpLbl">XP</label><input type="number" id="tkXp" min="0" placeholder="auto" style="width:90px"></div>
       <div class="mini grow" id="tkXpHint" style="align-self:center"></div>
+    </div>
+    <div class="card tkPcOnly">
+      <div class="row between"><b>Características</b><span class="mini" id="tkAcInfo"></span></div>
+      <div class="tk-abil" style="margin-top:6px">
+        <div class="field"><label>FUE</label><input type="number" id="ab_str" min="1" max="30"></div>
+        <div class="field"><label>DES</label><input type="number" id="ab_dex" min="1" max="30"></div>
+        <div class="field"><label>CON</label><input type="number" id="ab_con" min="1" max="30"></div>
+        <div class="field"><label>INT</label><input type="number" id="ab_int" min="1" max="30"></div>
+        <div class="field"><label>SAB</label><input type="number" id="ab_wis" min="1" max="30"></div>
+        <div class="field"><label>CAR</label><input type="number" id="ab_cha" min="1" max="30"></div>
+      </div>
+      <div class="mini">La CA y el arma se calculan solas con el equipo puesto (✓ en el inventario).</div>
     </div>
     <div class="card tkPcOnly" id="tkInvBox">
       <div class="row between"><b>🎒 Inventario</b><label class="row" style="gap:4px">Casillas <input type="number" id="tkSlots" value="5" min="1" max="40" style="width:56px"></label></div>
@@ -412,7 +439,7 @@ const S = {
   join: new URLSearchParams(location.search).get('unirse') || null,
   phone: false, attackPick: false, invSel: null, reach: [], busy: false, tkInv: null,
   attacks: [], atkSel: null, lastLevel: {}, lastHp: {},
-  items: [], itemById: {}, itemTarget: null,
+  items: [], itemById: {}, itemTarget: null, recalcAsked: {},
   drag: null, pan: null, pings: [], peers: [],
   visPolys: [], fogDirty: true, explored: {},
   editingToken: null, pendingImport: null,
@@ -438,6 +465,17 @@ const RACES = ['Humano','Elfo','Enano','Mediano','Gnomo','Semielfo','Semiorco','
 const XP_LEVELS = [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500];
 function levelFor(xp){ let l = 1; for (let i = 1; i < XP_LEVELS.length; i++) if ((xp || 0) >= XP_LEVELS[i]) l = i + 1; return l; }
 function levelOf(t){ return Math.max(t.level || 1, levelFor(t.xp || 0)); }
+const ABILS = [['str','FUE'],['dex','DES'],['con','CON'],['int','INT'],['wis','SAB'],['cha','CAR']];
+const CLASS_ABIL = {
+  guerrero:{str:15,dex:13,con:14,int:8,wis:12,cha:10}, barbaro:{str:15,dex:13,con:14,int:8,wis:12,cha:10},
+  paladin:{str:15,dex:10,con:13,int:8,wis:12,cha:14}, monje:{str:12,dex:15,con:13,int:10,wis:14,cha:8},
+  picaro:{str:8,dex:15,con:13,int:14,wis:12,cha:10}, explorador:{str:12,dex:15,con:13,int:8,wis:14,cha:10},
+  clerigo:{str:13,dex:12,con:14,int:8,wis:15,cha:10}, druida:{str:8,dex:13,con:14,int:12,wis:15,cha:10},
+  bardo:{str:8,dex:14,con:13,int:12,wis:10,cha:15}, brujo:{str:8,dex:14,con:13,int:12,wis:10,cha:15},
+  hechicero:{str:8,dex:13,con:14,int:10,wis:12,cha:15}, mago:{str:8,dex:13,con:14,int:15,wis:12,cha:10}
+};
+const SLOT_LABEL = { armor: 'Armadura', shield: 'Escudo', weapon: 'Arma', acc: 'Accesorio' };
+function abMod(v){ const m = Math.floor(((v || 10) - 10) / 2); return (m >= 0 ? '+' : '') + m; }
 const CTYPES = ['Aberración','Bestia','Celestial','Cieno','Constructo','Dragón','Elemental','Feérico','Gigante','Humanoide','Infernal','Monstruosidad','No muerto','Planta'];
 const ACTION_LABEL = { move: 'Movimiento', attack: 'Ataque', pass: 'Pasó turno' };
 function raceCls(t){ return [t.race, (CLASSES[t.cls] || {}).n].filter(Boolean).join(' · ') || 'Sin clase'; }
@@ -1449,8 +1487,48 @@ async function handleTap(e){
 }
 function attackOptions(t){
   const list = (S.attacks || []).filter(a => a.cls === t.cls);
-  if (!list.length) return [{ id: 'basic', name: 'Ataque básico', lvl: 1, range: t.range || 1, dmg: t.dmg || '1d6', atk_bonus: 0, descr: '' }];
-  return list;
+  const out = [];
+  if (t.wpn && t.wpn.name) out.push({ id: 'weapon', name: '🗡 ' + t.wpn.name, lvl: 1, range: t.wpn.range || 1, dmg: t.wpn.dmg,
+    atk_bonus: (t.wpn.atk || 0) - (t.atk || 0), descr: 'Arma equipada · +' + (t.wpn.atk || 0) + ' al ataque (' + (t.wpn.abil || 'Fue') + ')' });
+  if (!list.length && !out.length) out.push({ id: 'basic', name: 'Ataque básico', lvl: 1, range: t.range || 1, dmg: t.dmg || '1d6', atk_bonus: 0, descr: '' });
+  return out.concat(list);
+}
+function abilHtml(t){
+  const base = Object.assign({ str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }, t.abil || CLASS_ABIL[t.cls] || {});
+  const eff = Object.assign({}, base, t.abilEff || {});
+  return '<div class="abil-row">' + ABILS.map(([k, lab]) =>
+    '<div class="abil' + (eff[k] > base[k] ? ' up' : '') + '" title="' + (eff[k] > base[k] ? 'Mejorada por un objeto (base ' + base[k] + ')' : '') + '"><span>' + lab + '</span><b>' + eff[k] + '</b><i>' + abMod(eff[k]) + '</i></div>').join('') + '</div>';
+}
+function eqSummary(eq){
+  if (!eq) return '';
+  const p = [];
+  if (eq.slot === 'armor') p.push('Armadura: CA ' + eq.ac + (eq.dex === 'full' ? ' + Des' : eq.dex === 'max2' ? ' + Des (máx. 2)' : '') + (eq.str ? ' · Fue ' + eq.str : '') + (eq.stealth ? ' · desventaja en Sigilo' : ''));
+  if (eq.slot === 'shield') p.push('Escudo: +' + eq.ac + ' CA');
+  if (eq.slot === 'weapon') p.push('Arma: ' + eq.dice + ' ' + (eq.dtype || '') + (eq.bonus ? ' · +' + eq.bonus : '') + ' · alcance ' + (eq.range || 1) + (eq.finesse ? ' · sutil' : '') + (eq.ranged ? ' · a distancia (Des)' : '') + (eq.twoh ? ' · a dos manos' : ''));
+  if (eq.slot === 'acc'){
+    if (eq.ac) p.push('+' + eq.ac + ' CA' + (eq.needArmor ? ' (con armadura)' : '') + (eq.needShield ? ' (con escudo)' : '') + (eq.noArmor ? ' (sin armadura ni escudo)' : ''));
+    if (eq.watk) p.push('+' + eq.watk + ' ataque y daño con tu arma');
+    if (eq.wextra) p.push('+' + eq.wextra + ' de daño con tu arma');
+    if (eq.set) p.push(Object.entries(eq.set).map(([k, v]) => (ABILS.find(a => a[0] === k) || [k, k])[1] + ' ' + v).join(', '));
+    if (!p.length) p.push('Accesorio (efecto narrativo)');
+  }
+  if (eq.attune) p.push('requiere sintonía (máx. 3)');
+  return '🛡 ' + p.join(' · ');
+}
+function equipHtml(t){
+  const items = (t.inventory && t.inventory.items) || [];
+  const worn = items.filter(i => i.equipped && i.itemId && S.itemById[i.itemId] && S.itemById[i.itemId].eq);
+  const bySlot = s => worn.filter(i => S.itemById[i.itemId].eq.slot === s);
+  const nm = arr => arr.length ? arr.map(i => esc(i.name)).join(', ') : '<span class="muted">—</span>';
+  const w = t.wpn || {};
+  return '<div class="section-title">🛡 Equipo puesto</div><div class="card">' +
+    '<div class="eq-row"><span class="k">CA</span><span class="v"><b style="font-size:16px">' + (t.ac || '—') + '</b>' + (t.acParts ? '<div class="mini">' + esc(t.acParts) + '</div>' : '') + '</span></div>' +
+    '<div class="eq-row"><span class="k">Armadura</span><span class="v">' + nm(bySlot('armor')) + '</span></div>' +
+    '<div class="eq-row"><span class="k">Escudo</span><span class="v">' + nm(bySlot('shield')) + '</span></div>' +
+    '<div class="eq-row"><span class="k">Arma</span><span class="v">' + (w.name ? esc(w.name) + '<div class="mini">+' + (w.atk || 0) + ' al ataque · ' + esc(w.dmg || '') + ' ' + esc(w.dtype || '') + ' · alcance ' + (w.range || 1) + '</div>' : nm(bySlot('weapon'))) + '</span></div>' +
+    '<div class="eq-row"><span class="k">Accesorios</span><span class="v">' + nm(bySlot('acc')) + '<div class="mini">Sintonía ' + (t.attuned || 0) + '/3</div></span></div>' +
+    (t.eqWarn ? '<div class="note-warn">⚠ ' + esc(t.eqWarn) + '</div>' : '') +
+    '<div class="mini" style="margin-top:4px">Toca un objeto del inventario y pulsa «Equipar». Queda guardado.</div></div>';
 }
 function fxTag(cat){
   const fx = cat && cat.fx;
@@ -1497,6 +1575,10 @@ function renderPjPanel(p){
     p.innerHTML = html; bindTokenPanel(); return;
   }
   const g = gridOf(m);
+  if (!mine.acParts && !S.recalcAsked[mine.id] && !S.localMode){
+    S.recalcAsked[mine.id] = true;
+    rpc('token_recalc', { tid: mine.id }).catch(() => {});
+  }
   const rd = (gameDoc() || {}).round || {};
   const hpPct = mine.hpMax > 0 ? clamp((mine.hp || 0) / mine.hpMax * 100, 0, 100) : 0;
   // Ficha
@@ -1506,9 +1588,11 @@ function renderPjPanel(p){
     '<div class="stat-row"><div class="stat"><b>' + (mine.hp || 0) + '/' + (mine.hpMax || 0) + '</b><span>PV</span></div>' +
     '<div class="stat"><b>' + (mine.ac || '—') + '</b><span>CA</span></div>' +
     '<div class="stat"><b>' + levelOf(mine) + '</b><span>Nivel</span></div>' +
-    '<div class="stat"><b>' + ((mine.atk || 0) >= 0 ? '+' : '') + (mine.atk || 0) + '</b><span>Ataque</span></div></div>' +
+    '<div class="stat"><b>+' + (mine.pb || (2 + Math.floor((levelOf(mine) - 1) / 4))) + '</b><span>Compet.</span></div></div>' +
+    abilHtml(mine) +
     xpBarHtml(mine) +
     '<div class="row between" style="margin-top:8px"><span class="mini">Movimiento: ' + esc(mine.moveDie || '1d6') + '</span><button class="small" id="btnRelease">Cambiar de PJ</button></div></div>';
+  html += equipHtml(mine);
   // Ronda
   const ko = mine.hpMax > 0 && (mine.hp || 0) <= 0;
   html += '<div class="section-title">Tu turno</div><div class="card">';
@@ -1558,23 +1642,30 @@ function renderPjPanel(p){
   html += '<div class="section-title">🎒 Inventario · ' + items.length + '/' + slots + '</div><div class="inv-grid">';
   for (let i = 0; i < slots; i++){
     const it = items[i];
-    if (it) html += '<div class="slot full' + (S.invSel === it.id ? ' sel' : '') + '" data-iid="' + esc(it.id) + '">' + (it.consumable ? '🧪' : '') + esc(it.name) +
+    if (it) html += '<div class="slot full' + (S.invSel === it.id ? ' sel' : '') + (it.equipped ? ' eqd' : '') + '" data-iid="' + esc(it.id) + '">' + (it.equipped ? '<span class="eqm">✓ PUESTO</span>' : '') + (it.consumable ? '🧪' : '') + esc(it.name) +
       ((it.qty || 1) > 1 ? '<span class="q">×' + it.qty + '</span>' : '') + '</div>';
     else html += '<div class="slot"></div>';
   }
   html += '</div>';
   const sel = items.find(it => it.id === S.invSel);
   if (sel){
-    const cat = sel.itemId ? S.itemById[sel.itemId] : null;
+    const cat = sel.itemId ? S.itemById[sel.itemId] : findItem(sel.name);
     const fx = (cat && cat.fx) || sel.fx || { t: 'note' };
     const rd2 = (gameDoc() || {}).round || {};
     const canAct = rd2.active && !(rd2.done || {})[mine.id] && !(rd2.pending || {})[mine.id] && !ko;
-    const useLbl = fx.t === 'heal' ? '🧪 Beber (acción adicional)' : fx.t === 'dmg' ? '💥 Usar contra…' : (sel.consumable ? 'Usar' : 'Usar / mostrar');
+    const eqd = cat && cat.eq ? cat.eq : null;
+    const useLbl = fx.t === 'heal' ? '🧪 Beber (acción adicional)' : fx.t === 'dmg' ? '💥 Usar contra…' : (sel.consumable ? 'Usar (efecto narrativo)' : 'Mostrar al grupo');
     html += '<div class="card" style="margin-top:8px"><b>' + esc(sel.name) + '</b>' + ((sel.qty || 1) > 1 || (fx.keep) ? ' ×' + (sel.qty || 0) + (fx.keep ? ' cargas' : '') : '') +
       (cat ? fxTag(cat) : '') +
       (cat && cat.descr ? '<div class="item-desc">' + esc(cat.descr) + '</div>' : '') +
       (fx.t === 'dmg' ? '<div class="item-desc">Gasta tu acción de la ronda · alcance ' + (fx.range || 4) + ' casillas</div>' : '') +
-      '<div class="row" style="margin-top:6px"><button class="small primary" id="invUse"' + (fx.t === 'dmg' && !canAct ? ' disabled' : '') + (ko ? ' disabled' : '') + '>' + useLbl + '</button><button class="small" id="invDrop">Tirar</button></div>' +
+      (eqd ? '<div class="item-desc">' + eqSummary(eqd) + '</div>' : '') +
+      (!cat ? '<div class="note-warn">⚠ Objeto personalizado (no está en el catálogo): no tiene efecto automático. El DM aplica su efecto.</div>'
+            : (!eqd && fx.t === 'note' ? '<div class="note-warn">ℹ Efecto narrativo: al usarlo se registra y el DM aplica el efecto.</div>' : '')) +
+      '<div class="row" style="margin-top:6px">' +
+      (eqd ? '<button class="small primary" id="invEquip">' + (sel.equipped ? '🎒 Quitar' : '🛡 Equipar') + '</button>'
+           : '<button class="small primary" id="invUse"' + (fx.t === 'dmg' && !canAct ? ' disabled' : '') + (ko ? ' disabled' : '') + '>' + useLbl + '</button>') +
+      '<button class="small" id="invDrop"' + (sel.equipped ? ' disabled title="Quítatelo antes"' : '') + '>Tirar</button></div>' +
       (fx.t === 'dmg' && !canAct && !ko ? '<div class="mini" style="margin-top:4px">Necesitas tener tu acción de la ronda disponible.</div>' : '');
     if (fx.t === 'dmg' && S.itemTarget === sel.id && canAct){
       const rng = fx.range || 4;
@@ -1630,8 +1721,15 @@ function renderPjPanel(p){
     } catch(e){ toast(e.message, true); b.disabled = false; }
   });
   $$('.slot.full').forEach(el => el.onclick = () => { S.invSel = (S.invSel === el.dataset.iid) ? null : el.dataset.iid; renderPanel(); });
+  const ie = $('#invEquip'); if (ie) ie.onclick = async () => {
+    ie.disabled = true;
+    try {
+      const r = await rpc('item_equip', { tid: mine.id, iid: S.invSel, on_: !sel.equipped });
+      toast((sel.equipped ? '🎒 Te quitas ' : '🛡 Te equipas ') + sel.name + ' · CA ' + r.ac + (r.warn ? ' · ⚠ ' + r.warn : ''));
+    } catch(e){ toast(e.message, true); ie.disabled = false; }
+  };
   const iu = $('#invUse'); if (iu) iu.onclick = async () => {
-    const cat = sel.itemId ? S.itemById[sel.itemId] : null;
+    const cat = sel.itemId ? S.itemById[sel.itemId] : findItem(sel.name);
     const fx = (cat && cat.fx) || sel.fx || { t: 'note' };
     if (fx.t === 'dmg'){ S.itemTarget = (S.itemTarget === sel.id) ? null : sel.id; renderPanel(); return; }
     iu.disabled = true;
@@ -1737,6 +1835,7 @@ function toggleTkFields(){
   const pc = $('#tkType').value === 'pc';
   $$('.tkPcOnly').forEach(el => el.style.display = pc ? '' : 'none');
   $$('.tkMonOnly').forEach(el => el.style.display = $('#tkType').value === 'monster' ? '' : 'none');
+  $('#tkAcLbl').textContent = pc ? 'Ajuste CA (±)' : 'CA';
   $('#tkXpLbl').textContent = pc ? 'XP acumulada' : 'XP al morir';
   updateXpHint();
 }
@@ -1750,7 +1849,9 @@ $('#tkXp').addEventListener('input', updateXpHint);
 $('#tkType').addEventListener('change', toggleTkFields);
 $('#tkCls').addEventListener('change', () => {
   const c = CLASSES[$('#tkCls').value]; if (!c) return;
-  $('#tkAc').value = c.ac; $('#tkAtk').value = c.atk; $('#tkDmg').value = c.dmg; $('#tkRange').value = c.range; $('#tkMove').value = c.move;
+  if ($('#tkType').value !== 'pc') $('#tkAc').value = c.ac;
+  $('#tkAtk').value = c.atk; $('#tkDmg').value = c.dmg; $('#tkRange').value = c.range; $('#tkMove').value = c.move;
+  const ab = CLASS_ABIL[$('#tkCls').value]; if (ab) ABILS.forEach(([k]) => { $('#ab_' + k).value = ab[k]; });
 });
 function renderInvEditor(){
   const box = $('#tkInvList'); if (!box || !S.tkInv) return;
@@ -1758,12 +1859,20 @@ function renderInvEditor(){
   box.innerHTML = items.length ? items.map((it, i) =>
     '<div class="inv-edit-row"><input class="n" data-i="' + i + '" value="' + esc(it.name) + '"><input class="qn" type="number" min="1" data-i="' + i + '" value="' + (it.qty || 1) + '">' +
     '<label class="row" style="gap:3px"><input type="checkbox" class="cn" data-i="' + i + '" style="width:auto"' + (it.consumable ? ' checked' : '') + '>🧪</label>' +
+    (it.itemId && S.itemById[it.itemId] && S.itemById[it.itemId].eq ? '<label class="row" style="gap:3px" title="Equipado"><input type="checkbox" class="eqc" data-i="' + i + '" style="width:auto"' + (it.equipped ? ' checked' : '') + '>✓</label>' : '') +
     '<button class="small inv-rm" data-i="' + i + '">✕</button></div>').join('')
     : '<div class="mini">Inventario vacío.</div>';
   box.querySelectorAll('input.n').forEach(el => el.oninput = () => { items[el.dataset.i].name = el.value; });
   box.querySelectorAll('input.qn').forEach(el => el.oninput = () => { items[el.dataset.i].qty = Math.max(1, parseInt(el.value) || 1); });
   box.querySelectorAll('input.cn').forEach(el => el.onchange = () => { items[el.dataset.i].consumable = el.checked; });
   box.querySelectorAll('.inv-rm').forEach(el => el.onclick = () => { items.splice(el.dataset.i, 1); renderInvEditor(); });
+  box.querySelectorAll('input.eqc').forEach(el => el.onchange = () => {
+    const it = items[el.dataset.i]; it.equipped = el.checked;
+    const slot = ((S.itemById[it.itemId] || {}).eq || {}).slot;
+    if (el.checked && ['armor', 'shield', 'weapon'].includes(slot))
+      items.forEach(o => { if (o !== it && ((S.itemById[o.itemId] || {}).eq || {}).slot === slot) o.equipped = false; });
+    renderInvEditor();
+  });
 }
 $('#tkInvAdd').onclick = () => {
   const name = $('#tkInvName').value.trim(); if (!name) return;
@@ -1781,9 +1890,10 @@ $('#tkInvName').addEventListener('input', () => {
   const cat = findItem($('#tkInvName').value);
   if (cat){ $('#tkInvQty').value = cat.qty || 1; $('#tkInvCons').checked = !!cat.consumable; }
 });
+function normName(x){ return (x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase().replace(/\s+/g, ' '); }
 function findItem(name){
-  const n = (name || '').trim().toLowerCase(); if (!n) return null;
-  return S.items.find(i => i.name.toLowerCase() === n || (i.en || '').toLowerCase() === n) || null;
+  const n = normName(name); if (!n) return null;
+  return S.items.find(i => normName(i.name) === n || normName(i.en) === n) || null;
 }
 function giveItem(t, cat, name, qty, cons){
   const inv = JSON.parse(JSON.stringify(t.inventory || { slots: 5, items: [] }));
@@ -2119,6 +2229,10 @@ function openTokenModal(id){
   $('#tkDmg').value = t ? (t.dmg || '1d6') : '1d6';
   $('#tkXp').value = t && t.xp != null ? t.xp : '';
   $('#tkCtype').value = t ? (t.ctype || '') : '';
+  const ab = Object.assign({ str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }, (t && t.abil) || CLASS_ABIL[(t && t.cls) || ''] || {});
+  ABILS.forEach(([k]) => { $('#ab_' + k).value = ab[k]; });
+  $('#tkAcInfo').textContent = t && t.type === 'pc' && t.acParts ? 'CA actual ' + t.ac + ' = ' + t.acParts : '';
+  if (t && t.type === 'pc') $('#tkAc').value = t.acMisc || 0;
   $('#tkSaveB').value = t && t.save != null ? t.save : 1;
   $('#tkBurn').checked = !!(t && t.burning);
   $('#tkRange').value = t ? (t.range || 1) : 1;
@@ -2163,7 +2277,12 @@ $('#tkSave').onclick = async () => {
       imgUrl,
       x: center.x, y: center.y, createdAt: old ? (old.createdAt || Date.now()) : Date.now()
     };
-    t.ac = Math.max(1, parseInt($('#tkAc').value) || 12);
+    if (t.type === 'pc'){
+      t.acMisc = parseInt($('#tkAc').value) || 0;
+      t.abil = {}; ABILS.forEach(([k]) => { t.abil[k] = Math.max(1, Math.min(30, parseInt($('#ab_' + k).value) || 10)); });
+      t.ac = old && old.ac ? old.ac : 10;
+      ['acParts', 'wpn', 'abilEff', 'pb', 'attuned', 'eqWarn'].forEach(k => { if (old && old[k] != null) t[k] = old[k]; });
+    } else t.ac = Math.max(1, parseInt($('#tkAc').value) || 12);
     t.atk = parseInt($('#tkAtk').value) || 0;
     t.dmg = ($('#tkDmg').value || '').trim() || '1d6';
     t.range = Math.max(1, parseInt($('#tkRange').value) || 1);
@@ -2187,6 +2306,7 @@ $('#tkSave').onclick = async () => {
     }
     if (old && old.ownerId && t.type === 'pc'){ t.ownerId = old.ownerId; t.ownerName = old.ownerName || ''; }
     await DB.doc('tokens/' + id).set(t);
+    if (t.type === 'pc' && !S.localMode){ try { await rpc('token_recalc', { tid: id }); } catch(e){ toast('CA: ' + e.message, true); } }
     $('#tokenModal').classList.remove('open'); S.fogDirty = true;
   } catch(e){
     toast('No se pudo guardar: ' + (e && e.message ? e.message : e), true);

@@ -241,6 +241,52 @@ for n, en, d, r in [
 ]:
     add('Objetos mágicos', n, en, d, rarity=r)
 
+# ---------------- Metadatos de equipo (eq) ----------------
+RANGED = {'dart', 'light-crossbow', 'shortbow', 'sling', 'blowgun', 'hand-crossbow', 'heavy-crossbow', 'longbow', 'musket', 'pistol'}
+for it in ITEMS:
+    if it['cat'] == 'Armas':
+        d = it['descr']
+        dice, dtype = d.split(' · ')[0].split(' ')[:2]
+        props = d.split(' · ')[1] if ' · ' in d else ''
+        rng = 1
+        if it['id'] in RANGED:
+            mm = re.search(r'\((\d+)/', props); rng = min(20, max(1, int(mm.group(1)) // 5)) if mm else 4
+        elif 'Alcance' in props:
+            rng = 2
+        it['eq'] = {"slot": "weapon", "dice": dice, "dtype": dtype, "range": rng,
+                    "ranged": it['id'] in RANGED, "finesse": 'Sutil' in props, "twoh": 'A dos manos' in props}
+ARMOR = {'padded-armor': (11, 'full', 0, True), 'leather-armor': (11, 'full', 0, False), 'studded-leather-armor': (12, 'full', 0, False),
+         'hide-armor': (12, 'max2', 0, False), 'chain-shirt': (13, 'max2', 0, False), 'scale-mail': (14, 'max2', 0, True),
+         'breastplate': (14, 'max2', 0, False), 'half-plate-armor': (15, 'max2', 0, True), 'ring-mail': (14, 'none', 0, True),
+         'chain-mail': (16, 'none', 13, True), 'splint-armor': (17, 'none', 15, True), 'plate-armor': (18, 'none', 15, True)}
+EQ = {k: {"slot": "armor", "ac": v[0], "dex": v[1], "str": v[2], "stealth": v[3]} for k, v in ARMOR.items()}
+EQ.update({
+ 'shield': {"slot": "shield", "ac": 2},
+ 'sentinel-shield': {"slot": "shield", "ac": 2},
+ 'weapon-1': {"slot": "acc", "watk": 1, "wdmg": 1}, 'weapon-2': {"slot": "acc", "watk": 2, "wdmg": 2}, 'weapon-3': {"slot": "acc", "watk": 3, "wdmg": 3},
+ 'armor-1': {"slot": "acc", "ac": 1, "needArmor": True}, 'armor-2': {"slot": "acc", "ac": 2, "needArmor": True}, 'armor-3': {"slot": "acc", "ac": 3, "needArmor": True},
+ 'shield-1': {"slot": "acc", "ac": 1, "needShield": True}, 'shield-2': {"slot": "acc", "ac": 2, "needShield": True}, 'shield-3': {"slot": "acc", "ac": 3, "needShield": True},
+ 'cloak-of-protection': {"slot": "acc", "ac": 1, "save": 1, "attune": True},
+ 'ring-of-protection': {"slot": "acc", "ac": 1, "save": 1, "attune": True},
+ 'bracers-of-defense': {"slot": "acc", "ac": 2, "noArmor": True, "noShield": True, "attune": True},
+ 'amulet-of-health': {"slot": "acc", "set": {"con": 19}, "attune": True},
+ 'gauntlets-of-ogre-power': {"slot": "acc", "set": {"str": 19}, "attune": True},
+ 'belt-of-hill-giant-strength': {"slot": "acc", "set": {"str": 21}, "attune": True},
+ 'headband-of-intellect': {"slot": "acc", "set": {"int": 19}, "attune": True},
+ 'flame-tongue': {"slot": "acc", "wextra": "2d6", "attune": True},
+ 'frost-brand': {"slot": "acc", "wextra": "1d6", "attune": True},
+ 'sun-blade': {"slot": "weapon", "dice": "1d8", "dtype": "radiante", "range": 1, "finesse": True, "bonus": 2, "attune": True},
+ 'vorpal-sword': {"slot": "weapon", "dice": "1d8", "dtype": "cortante", "range": 1, "bonus": 3, "attune": True},
+ 'javelin-of-lightning': {"slot": "weapon", "dice": "1d6", "dtype": "perforante", "range": 6},
+})
+for k in ['boots-of-elvenkind', 'boots-of-speed', 'cloak-of-elvenkind', 'cloak-of-invisibility', 'ring-of-feather-falling',
+          'ring-of-invisibility', 'ring-of-regeneration', 'hat-of-disguise', 'gloves-of-thievery', 'periapt-of-wound-closure',
+          'mithral-armor', 'adamantine-armor', 'lantern-of-revealing', 'staff-of-healing', 'wand-of-web']:
+    EQ[k] = {"slot": "acc", "attune": k in ('boots-of-speed', 'cloak-of-invisibility', 'ring-of-invisibility', 'ring-of-regeneration', 'staff-of-healing')}
+for it in ITEMS:
+    if it['id'] in EQ: it['eq'] = EQ[it['id']]
+    it.setdefault('eq', None)
+
 # ---------------- SQL ----------------
 def q(v):
     if v is None: return 'null'
@@ -251,7 +297,7 @@ def q(v):
 
 ids = [i['id'] for i in ITEMS]
 assert len(ids) == len(set(ids)), 'ids duplicados'
-rows = ',\n'.join('(' + ', '.join(q(i[k]) for k in ['id', 'cat', 'name', 'en', 'descr', 'consumable', 'qty', 'fx', 'rarity']) + ')' for i in ITEMS)
+rows = ',\n'.join('(' + ', '.join(q(i[k]) for k in ['id', 'cat', 'name', 'en', 'descr', 'consumable', 'qty', 'fx', 'rarity', 'eq']) + ')' for i in ITEMS)
 sql = f"""-- ============================================================
 -- Mesa de Rol — VTT · Catálogo de objetos D&D 5e (reglas 2024)
 -- Generado por supabase/gen_items.py — {len(ITEMS)} objetos.
@@ -260,17 +306,23 @@ sql = f"""-- ============================================================
 -- ============================================================
 create table if not exists public.items (
   id text primary key, cat text not null, name text not null, en text, descr text,
-  consumable boolean not null default false, qty int not null default 1, fx jsonb, rarity text
+  consumable boolean not null default false, qty int not null default 1, fx jsonb, rarity text, eq jsonb
 );
+alter table public.items add column if not exists eq jsonb;
 alter table public.items enable row level security;
 drop policy if exists items_select on public.items;
 create policy items_select on public.items for select using (true);
 
-insert into public.items (id, cat, name, en, descr, consumable, qty, fx, rarity) values
+insert into public.items (id, cat, name, en, descr, consumable, qty, fx, rarity, eq) values
 {rows}
 on conflict (id) do update set cat = excluded.cat, name = excluded.name, en = excluded.en, descr = excluded.descr,
-  consumable = excluded.consumable, qty = excluded.qty, fx = excluded.fx, rarity = excluded.rarity;
+  consumable = excluded.consumable, qty = excluded.qty, fx = excluded.fx, rarity = excluded.rarity, eq = excluded.eq;
 """
 open('/home/claude/vtt-dnd/supabase/items.sql', 'w', encoding='utf-8').write(sql)
+eqs = [i for i in ITEMS if i['eq']]
+upd = '\n'.join("update public.items set eq = " + q(i['eq']) + " where id = " + q(i['id']) + ";" for i in eqs)
+open('/home/claude/vtt-dnd/supabase/equipment_items.sql', 'w', encoding='utf-8').write(
+    "-- Metadatos de equipo (generado por gen_items.py). Re-ejecutable.\nalter table public.items add column if not exists eq jsonb;\n" + upd + "\n")
+print('equipables:', len(eqs))
 from collections import Counter
 print(len(ITEMS), dict(Counter(i['cat'] for i in ITEMS)), 'con efecto automático:', sum(1 for i in ITEMS if i['fx'] and i['fx']['t'] != 'note'))

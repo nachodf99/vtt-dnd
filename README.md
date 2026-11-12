@@ -76,6 +76,12 @@ Copia `config.local.example.js` como `config.local.js` con las claves del proyec
 
 > Mecánicas de objetos basadas en el System Reference Document 5.2 (SRD 5.2) de Wizards of the Coast LLC, disponible bajo licencia [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). Traducciones y textos propios.
 
+## Equipo y características (en `develop`)
+- 88 objetos del catálogo son equipables (armaduras, escudos, armas y objetos mágicos). En el móvil: tocar el objeto → **Equipar / Quitar**. Queda guardado en el personaje.
+- El servidor (`supabase/equipment.sql`) recalcula CA (ligera: +Des, intermedia: +Des máx. 2, pesada: sin Des; defensa sin armadura de bárbaro/monje), arma (ataque = característica + competencia + bonificador), características mejoradas por objetos y sintonía (máx. 3).
+- La ficha muestra las 6 características, el equipo puesto y el desglose de la CA. El DM edita las características y un ajuste de CA en el modal del token.
+- Los objetos escritos a mano se enlazan solos con el catálogo si el nombre coincide (sin importar tildes ni mayúsculas); si no, se marcan como «personalizado» sin efecto automático.
+
 ## Permisos (RLS)
 
 - **Identidad**: sesión anónima de Supabase, persistida en el navegador. Quien crea una partida es su DM (no borres los datos del sitio en el navegador del DM o perderá esa identidad).
