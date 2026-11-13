@@ -158,13 +158,24 @@ function makeSupaDB(){
     const prev = cache[t].get(id);
     if (v && v.hidden && !(prev && prev.hidden)) setTimeout(() => { try { GCH.send({ type: 'broadcast', event: 'tok-refresh', payload: {} }); } catch(e){} }, 300);
   }
+  // Si el documento ya existe, ACTUALIZAR (no "insertar o actualizar"): las partidas solo se crean
+  // con la función create_game y la base de datos no permite insertarlas directamente.
+  async function write(t, id, v){
+    if (cache[t].has(id) || t === 'games'){
+      const r = await SB.from(t).update({ data: v }).eq('id', id).select('id');
+      if (r.error) return r;
+      if (r.data && r.data.length) return r;
+      if (t === 'games') return { error: { message: 'No tienes permiso para modificar esta partida' } };
+    }
+    return SB.from(t).upsert({ id, data: v });
+  }
   const api = {
     reload(list){ return Promise.all((list || tables).map(loadAll)); },
     doc(path){
       const { t, id } = split(path);
       return {
         async set(v){
-          const { error } = await SB.from(t).upsert({ id, data: v });
+          const { error } = await write(t, id, v);
           if (error) throw new Error(error.message);
           hiddenNow(t, id, v);
           cache[t].set(id, v); notify(t);
@@ -172,7 +183,7 @@ function makeSupaDB(){
         async update(v){
           const cur = cache[t].get(id) || {};
           const nv = Object.assign({}, cur, v);
-          const { error } = await SB.from(t).upsert({ id, data: nv });
+          const { error } = await write(t, id, nv);
           if (error) throw new Error(error.message);
           hiddenNow(t, id, nv);
           cache[t].set(id, nv); notify(t);
