@@ -87,12 +87,36 @@ Copia `config.local.example.js` como `config.local.js` con las claves del proyec
 - Botón **?** en la cabecera (y «❓ Ayuda» en el lobby): ayuda por secciones según seas DM o jugador, explicación de cada botón y preguntas frecuentes.
 - **Tutorial guiado** que resalta cada parte de la pantalla. Se ofrece la primera vez que entras a una partida (una vez como DM y otra como jugador).
 
+## Partidas, mapas y personajes (en `develop`)
+- Cada partida tiene **varios mapas** (`maps.data.gameId`). El DM activa uno y es el que ven los jugadores. Sus mapas de otras partidas se pueden copiar con «➕ Añadir».
+- Los **PJ pertenecen a la partida**, no al mapa: `tokens.data.mapId` indica dónde están (o `null` = banquillo). El DM los mueve con «Mover a…», «📍 Aquí» o «Traer a todo el grupo», y conservan vida, ataque, daño, inventario, equipo y experiencia.
+- Al borrar un mapa, sus PJ pasan al banquillo y sus monstruos se borran.
+
+## Cuentas
+- Se puede jugar como **invitado** (sesión anónima). Al **crear cuenta** (correo + contraseña o Google) el invitado se convierte en cuenta **sin perder nada** (mismo identificador).
+- Perfil: nombre visible, personajes en todas tus partidas, cambiar contraseña, cerrar sesión y **borrar la cuenta** (borra partidas que diriges, mapas y mensajes; libera tus PJ).
+- El correo nunca se muestra a otros jugadores.
+
+### Ajustes que hay que hacer a mano en Supabase (Authentication), en cada proyecto
+1. **URL Configuration** → *Site URL*: la URL de producción. *Redirect URLs*: producción y `https://*-nachodf99s-projects.vercel.app/**` (vistas previas).
+2. **Providers → Google**: activar con el *Client ID* y *Client secret* de Google Cloud (OAuth, tipo «Aplicación web», URI de redirección autorizada `https://<proyecto>.supabase.co/auth/v1/callback`).
+3. **Sign In / Providers → Allow manual linking**: activado (para pasar de invitado a Google sin perder datos).
+4. **Email**: *Confirm email* activado; contraseña mínima 8 con letras y números. Configurar **SMTP propio** (p. ej. Resend o Brevo): el correo integrado de Supabase solo envía a miembros del equipo y con un límite muy bajo.
+5. Opcional: **Attack Protection → CAPTCHA** (Cloudflare Turnstile) y *Leaked password protection* (plan Pro).
+
+## Seguridad
+- **RLS por pertenencia**: solo los miembros de una partida (`game_members`) ven la partida, sus mapas, sus tokens y su chat. Los monstruos ocultos y las tiradas privadas del DM no llegan nunca al navegador de los jugadores.
+- **Códigos privados** en `game_secrets` (solo los ve el DM); se entra con `join_game` / `join_by_code`, que comprueban el código en el servidor. Máximo 10 intentos fallidos cada 15 min.
+- Solo el DM escribe tokens y partidas; los jugadores actúan solo mediante funciones que validan las reglas. Todas las funciones internas están bloqueadas.
+- Canales en tiempo real **privados** por partida (presencia y señales) con políticas en `realtime.messages`.
+- Almacenamiento: cada usuario solo sube a su carpeta, máximo 50 MB, solo imágenes y vídeo (sin SVG), y nadie puede listar archivos ajenos.
+- Navegador: **CSP estricta** (`script-src 'self'`, sin scripts en línea), HSTS, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy` y `Permissions-Policy` en `vercel.json`. Librerías y fuentes alojadas en `/vendor` (sin CDNs de terceros ni Google Fonts: no se filtra la IP de los jugadores). Los datos recibidos se sanean antes de pintarse.
+- Pruebas de ataque (intruso, fuerza bruta de códigos, subir PV a mano, hacerse DM, leer secretos…) en el historial de `supabase/security.sql`.
+
 ## Permisos (RLS)
 
-- **Identidad**: sesión anónima de Supabase, persistida en el navegador. Quien crea una partida es su DM (no borres los datos del sitio en el navegador del DM o perderá esa identidad).
-- `games`, `maps`, `tokens`: cualquiera puede leer; solo el DM/dueño puede escribir (lo impone la base de datos, no solo la interfaz).
-- `rolls`: cada usuario firma sus propias tiradas y mensajes.
-- El código de partida es un control social (tipo Jackbox), no un secreto criptográfico: no metas información sensible.
+- **Identidad**: sesión de Supabase (invitado anónimo o cuenta con correo/Google). Con cuenta, el DM puede entrar desde cualquier dispositivo; como invitado, su identidad vive en ese navegador.
+- Detalle completo en la sección **Seguridad** y en `supabase/security.sql`.
 
 ## Estructura
 
