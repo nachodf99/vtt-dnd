@@ -82,12 +82,54 @@ Copia `config.local.example.js` como `config.local.js` con las claves del proyec
 - La ficha muestra las 6 características, el equipo puesto y el desglose de la CA. El DM edita las características y un ajuste de CA en el modal del token.
 - Los objetos escritos a mano se enlazan solos con el catálogo si el nombre coincide (sin importar tildes ni mayúsculas); si no, se marcan como «personalizado» sin efecto automático.
 
+## Luces, medidas, plantillas y sonido (en `develop`)
+- **Ejecutar `supabase/mesa_extras.sql`** en cada proyecto (re-ejecutable): crea las tablas `templates` y `explored`, la función `set_game_audio` y permite subir audio al bucket `assets`.
+- **Luces**: al importar se leen las luces de Dungeon Alchemist (export de Foundry y `.dd2vtt`). Cada mapa tiene un nivel de **oscuridad** (🗺 Mapas → Luz y oscuridad); desde el 55 % los PJ solo ven lo iluminado o con **visión en la oscuridad** (por raza: elfo, enano, gnomo, semielfo, semiorco, tiflin = 12 casillas; o a mano en el token). Los tokens pueden llevar antorcha, linterna, vela o conjuro Luz. Con 🧱 el DM ve las 💡 y las enciende o apaga tocándolas. Si el radio no cuadra con el dibujo, ajusta «tamaño ×».
+- **📏 Regla** con varios puntos (cada toque añade un tramo); el resto del grupo la ve en directo.
+- **📐 Plantillas de área** (círculo, cono, línea de 5 ft, cubo): se arrastran desde el origen y marcan las casillas afectadas. Las crea cualquiera; las borra su autor o el DM.
+- **Niebla explorada guardada** por jugador y mapa (en el dispositivo y en Supabase). El DM la reinicia para todos desde 🗺 Mapas.
+- **🎵 Sonido**: el DM sube música (una a la vez) y ambientes (se mezclan); suenan sincronizados en todos los dispositivos. Cada uno ajusta su volumen o silencia; si el navegador bloquea el audio aparece «🔈 Activar sonido». El proyector no reproduce audio para no duplicarlo.
+
+## Pruebas automáticas
+`tools/pruebas/` contiene un servidor que imita Supabase (auth anónima, REST con las políticas RLS reales sobre un PostgreSQL local, storage y realtime) y tres baterías de pruebas de extremo a extremo con varios jugadores a la vez. Instrucciones en `tools/pruebas/LEEME.md`.
+
+## Pantallas y ayuda
+- Diseño adaptable: en ordenador, panel lateral (se oculta con ☰); en móvil o pantalla estrecha, panel y mapa apilados (⤢ cambia el tamaño del mapa); en móvil horizontal, lado a lado.
+- Botón **?** en la cabecera (y «❓ Ayuda» en el lobby): ayuda por secciones según seas DM o jugador, explicación de cada botón y preguntas frecuentes.
+- **Tutorial guiado** que resalta cada parte de la pantalla. Se ofrece la primera vez que entras a una partida (una vez como DM y otra como jugador).
+
+## Partidas, mapas y personajes (en `develop`)
+- Cada partida tiene **varios mapas** (`maps.data.gameId`). El DM activa uno y es el que ven los jugadores. Sus mapas de otras partidas se pueden copiar con «➕ Añadir».
+- Los **PJ pertenecen a la partida**, no al mapa: `tokens.data.mapId` indica dónde están (o `null` = banquillo). El DM los mueve con «Mover a…», «📍 Aquí» o «Traer a todo el grupo», y conservan vida, ataque, daño, inventario, equipo y experiencia.
+- Al borrar un mapa, sus PJ pasan al banquillo y sus monstruos se borran.
+- **🚩 Punto de aparición** por mapa (`maps.data.spawn`). Al activar otro mapa, los PJ del mapa anterior y del banquillo viajan solos a su 🚩 (ajuste «llevar al grupo automáticamente», `games.data.autoMove`). Los PJ nuevos también aparecen ahí.
+- Monstruos y PNJ quedan guardados en su mapa y posición. «➕ Añadir» un mapa antiguo lo mueve a la partida con sus tokens; uno de otra partida se copia con sus monstruos y PNJ.
+
+## Cuentas
+- Se puede jugar como **invitado** (sesión anónima). Al **crear cuenta** (correo + contraseña o Google) el invitado se convierte en cuenta **sin perder nada** (mismo identificador).
+- Perfil: nombre visible, personajes en todas tus partidas, cambiar contraseña, cerrar sesión y **borrar la cuenta** (borra partidas que diriges, mapas y mensajes; libera tus PJ).
+- El correo nunca se muestra a otros jugadores.
+
+### Ajustes que hay que hacer a mano en Supabase (Authentication), en cada proyecto
+1. **URL Configuration** → *Site URL*: la URL de producción. *Redirect URLs*: producción y `https://*-nachodf99s-projects.vercel.app/**` (vistas previas).
+2. **Providers → Google**: activar con el *Client ID* y *Client secret* de Google Cloud (OAuth, tipo «Aplicación web», URI de redirección autorizada `https://<proyecto>.supabase.co/auth/v1/callback`).
+3. **Sign In / Providers → Allow manual linking**: activado (para pasar de invitado a Google sin perder datos).
+4. **Email**: *Confirm email* activado; contraseña mínima 8 con letras y números. Configurar **SMTP propio** (p. ej. Resend o Brevo): el correo integrado de Supabase solo envía a miembros del equipo y con un límite muy bajo.
+5. Opcional: **Attack Protection → CAPTCHA** (Cloudflare Turnstile) y *Leaked password protection* (plan Pro).
+
+## Seguridad
+- **RLS por pertenencia**: solo los miembros de una partida (`game_members`) ven la partida, sus mapas, sus tokens y su chat. Los monstruos ocultos y las tiradas privadas del DM no llegan nunca al navegador de los jugadores.
+- **Códigos privados** en `game_secrets` (solo los ve el DM); se entra con `join_game` / `join_by_code`, que comprueban el código en el servidor. Máximo 10 intentos fallidos cada 15 min.
+- Solo el DM escribe tokens y partidas; los jugadores actúan solo mediante funciones que validan las reglas. Todas las funciones internas están bloqueadas.
+- Canales en tiempo real **privados** por partida (presencia y señales) con políticas en `realtime.messages`.
+- Almacenamiento: cada usuario solo sube a su carpeta, máximo 50 MB, solo imágenes y vídeo (sin SVG), y nadie puede listar archivos ajenos.
+- Navegador: **CSP estricta** (`script-src 'self'`, sin scripts en línea), HSTS, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy` y `Permissions-Policy` en `vercel.json`. Librerías y fuentes alojadas en `/vendor` (sin CDNs de terceros ni Google Fonts: no se filtra la IP de los jugadores). Los datos recibidos se sanean antes de pintarse.
+- Pruebas de ataque (intruso, fuerza bruta de códigos, subir PV a mano, hacerse DM, leer secretos…) en el historial de `supabase/security.sql`.
+
 ## Permisos (RLS)
 
-- **Identidad**: sesión anónima de Supabase, persistida en el navegador. Quien crea una partida es su DM (no borres los datos del sitio en el navegador del DM o perderá esa identidad).
-- `games`, `maps`, `tokens`: cualquiera puede leer; solo el DM/dueño puede escribir (lo impone la base de datos, no solo la interfaz).
-- `rolls`: cada usuario firma sus propias tiradas y mensajes.
-- El código de partida es un control social (tipo Jackbox), no un secreto criptográfico: no metas información sensible.
+- **Identidad**: sesión de Supabase (invitado anónimo o cuenta con correo/Google). Con cuenta, el DM puede entrar desde cualquier dispositivo; como invitado, su identidad vive en ese navegador.
+- Detalle completo en la sección **Seguridad** y en `supabase/security.sql`.
 
 ## Estructura
 
@@ -99,3 +141,9 @@ config.local.example.js    ← plantilla para desarrollo local
 ```
 
 _Rama develop → entorno de preproducción (BD vtt-dev)._
+
+## Dados 3D
+- Cada tirada (panel 🎲, ataques, movimiento, monstruos) se ve rodando en 3D sobre el mapa en la pantalla de todos, con física real (three.js + cannon-es, en `vendor/dice-libs.js`, se cargan solo con la primera tirada).
+- El resultado lo decide la tirada de siempre; la animación solo gira el dado para que muestre ese número, así el registro y la mesa siempre coinciden.
+- Cada jugador tiene su color de dados; los monstruos tiran dados negros con números rojos. Las tiradas ocultas 🤫 solo las ven quien tira y el DM. Un 20 natural sale como ¡CRÍTICO! y un 1 como PIFIA.
+- La casilla **3D** del panel de dados lo desactiva en ese dispositivo. Código en `dice3d.js`.
