@@ -45,8 +45,13 @@ header .logo span{color:var(--ink)}
 main{display:flex; flex:1; min-height:0; position:relative}
 #sidebar{width:330px; min-width:330px; background:var(--panel); border-right:2px solid var(--line); display:flex; flex-direction:column; z-index:20}
 #tabs{display:flex; border-bottom:1px solid var(--line)}
-#tabs button{flex:1; border:none; border-radius:0; background:transparent; padding:10px 4px; font-size:12.5px; color:var(--ink-dim); border-bottom:2px solid transparent}
-#tabs button.active{color:var(--accent); border-bottom-color:var(--accent); background:rgba(201,162,39,.05)}
+#tabs button{flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; gap:2px; border:none; border-radius:0; background:transparent; padding:8px 2px 7px; color:var(--ink-dim); border-bottom:2px solid transparent; transition:color .15s, background .15s}
+#tabs button .ti{font-size:17px; line-height:1.1; filter:grayscale(.6) opacity(.75); transition:filter .15s}
+#tabs button .tl{font-size:11.5px; font-weight:600; letter-spacing:.2px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+#tabs button:hover{color:var(--ink); border-color:transparent; border-bottom-color:var(--line)}
+#tabs button.active{color:var(--accent); border-bottom-color:var(--accent); background:linear-gradient(180deg, transparent, rgba(201,162,39,.08))}
+#tabs button.active .ti, #tabs button:hover .ti{filter:none}
+#tabs button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
 #panel{flex:1; overflow-y:auto; padding:12px}
 .section-title{font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:var(--ink-dim); margin:14px 0 8px; font-weight:600}
 .section-title:first-child{margin-top:0}
@@ -136,6 +141,12 @@ select.cond-add{padding:2px 2px; font-size:11px; width:52px}
 #toasts{position:fixed; bottom:14px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:7px; z-index:200; align-items:center}
 .toast{background:#241c14; border:1px solid var(--accent); color:var(--ink); padding:9px 16px; border-radius:10px; font-size:13px; box-shadow:0 4px 18px rgba(0,0,0,.5); max-width:90vw}
 .toast.err{border-color:var(--danger)}
+.toast{animation:toastIn .22s ease-out}
+@keyframes toastIn{from{opacity:0; transform:translateY(8px)}}
+@media (prefers-reduced-motion: reduce){ .toast{animation:none} }
+/* Tarjeta de turno cuando hay que actuar */
+.card.turn-now{border-color:var(--accent); box-shadow:0 0 0 1px rgba(201,162,39,.25), 0 6px 22px rgba(201,162,39,.12); background:linear-gradient(180deg, #2c2215, var(--panel2))}
+.section-title.turn-now{color:var(--accent)}
 
 #loading{position:fixed; inset:0; background:var(--bg); display:flex; flex-direction:column; gap:14px; align-items:center; justify-content:center; z-index:300}
 #loading .d20{font-size:48px; animation:spin 2.4s linear infinite}
@@ -251,7 +262,6 @@ body.side-hidden:not(.phone) #sidebar{margin-left:-330px}
 #btnMapSize{display:none; position:absolute; left:10px; top:10px; z-index:25; height:34px; padding:0 10px; font-size:13px; background:rgba(30,24,19,.92)}
 #tabs{overflow-x:auto; scrollbar-width:none}
 #tabs::-webkit-scrollbar{display:none}
-#tabs button{white-space:nowrap; min-width:64px}
 /* Ordenador grande */
 @media(min-width:1400px){
   #sidebar{width:380px; min-width:380px}
@@ -273,21 +283,23 @@ body.phone.map-small #stage{height:22%}
 body.phone #sidebar{position:static; transform:none; width:100%; min-width:0; flex:1; min-height:0; border-right:none; border-top:2px solid var(--line); box-shadow:none; margin:0}
 body.phone #sidebarToggle{display:none !important}
 body.phone #btnMapSize{display:block}
-body.phone header .logo span, body.phone #peersBar, body.phone #envBadge{display:none}
+body.phone header .logo .lt, body.phone #peersBar, body.phone #envBadge{display:none}
 body.phone header{padding:6px 8px; gap:6px; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none}
 body.phone header::-webkit-scrollbar{display:none}
 body.phone header .logo{font-size:15px}
 body.phone .badge{white-space:nowrap}
 body.phone #stageTools{top:8px; right:8px; gap:5px}
 body.phone #stageTools button{width:36px; height:36px; font-size:15px}
-body.phone #tabs button{padding:11px 6px; font-size:12.5px; flex:1 0 auto}
+body.phone #tabs button{padding:8px 2px 7px}
+body.phone #tabs button .ti{font-size:19px}
 body.phone #panel{padding:10px 10px calc(14px + env(safe-area-inset-bottom))}
 body.phone button{min-height:38px}
 body.phone button.small{min-height:32px; padding:5px 10px}
 body.phone input, body.phone select, body.phone textarea{font-size:16px}
 body.phone .modal-back{padding:0; align-items:flex-end}
 body.phone .modal{max-width:none; border-radius:16px 16px 0 0; max-height:94dvh; padding:16px 14px calc(16px + env(safe-area-inset-bottom))}
-body.phone #toasts{bottom:auto; top:58px}
+body.phone #toasts{bottom:calc(18px + env(safe-area-inset-bottom)); width:calc(100% - 28px)}
+body.phone .toast{width:100%; text-align:center}
 body.phone #qrBox img{width:110px; height:110px}
 body.phone .act-grid button{padding:16px 4px}
 /* Móvil: botón para ocultar el mapa y dar toda la pantalla al panel */
@@ -389,7 +401,7 @@ body.phone.map-hidden .stage-bar{display:none}
 <div id="app">
   <div id="banner"></div>
   <header>
-    <div class="logo">⚔ MESA <span>DE ROL</span></div>
+    <div class="logo" title="Mesa de rol">⚔<span class="lt"> MESA <span>DE ROL</span></span></div>
     <button id="btnHideMap" class="small" title="Ocultar el mapa para tener más espacio para el panel">🗺 Ocultar mapa</button>
     <span class="badge" id="roleBadge" style="display:none">…</span>
     <span class="badge env" id="envBadge" style="display:none">PRE</span>
@@ -407,12 +419,12 @@ body.phone.map-hidden .stage-bar{display:none}
   <main>
     <div id="sidebar">
       <div id="tabs">
-        <button data-tab="pj" id="tabPjBtn" style="display:none">🧙 Mi PJ</button>
-        <button data-tab="maps" id="tabMapsBtn">🗺 Mapas</button>
-        <button data-tab="tokens" class="active">♟ Tokens</button>
-        <button data-tab="init">⚔ Iniciativa</button>
-        <button data-tab="dice">🎲 Dados</button>
-        <button data-tab="audio" id="tabAudioBtn" title="Música y ambiente">🎵</button>
+        <button data-tab="pj" id="tabPjBtn" style="display:none"><span class="ti">🧙</span><span class="tl">Mi PJ</span></button>
+        <button data-tab="maps" id="tabMapsBtn"><span class="ti">🗺</span><span class="tl">Mapas</span></button>
+        <button data-tab="tokens" class="active"><span class="ti">♟</span><span class="tl">Tokens</span></button>
+        <button data-tab="init"><span class="ti">⚔</span><span class="tl">Rondas</span></button>
+        <button data-tab="dice"><span class="ti">🎲</span><span class="tl">Dados</span></button>
+        <button data-tab="audio" id="tabAudioBtn" title="Música y ambiente"><span class="ti">🎵</span><span class="tl">Sonido</span></button>
       </div>
       <div id="panel"></div>
     </div>

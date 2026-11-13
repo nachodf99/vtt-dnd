@@ -7,7 +7,16 @@ const $$ = s => [...document.querySelectorAll(s)];
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2) + Date.now());
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function toast(msg, err){ const t = document.createElement('div'); t.className = 'toast' + (err ? ' err' : ''); t.textContent = msg; $('#toasts').appendChild(t); setTimeout(() => t.remove(), 4200); }
+function toast(msg, err){
+  const box = $('#toasts');
+  // no repetir el mismo aviso si aún se ve; y como mucho 3 a la vez
+  if ([...box.children].some(x => x.textContent === msg)) return;
+  while (box.children.length >= 3) box.firstChild.remove();
+  const t = document.createElement('div'); t.className = 'toast' + (err ? ' err' : ''); t.textContent = msg;
+  t.setAttribute('role', err ? 'alert' : 'status');
+  t.onclick = () => t.remove();
+  box.appendChild(t); setTimeout(() => t.remove(), err ? 6000 : 3600);
+}
 function snapDocs(snap){
   if (!snap) return [];
   if (Array.isArray(snap)) return snap.map(d => ({ id: d.id, ...(typeof d.data === 'function' ? (d.data() || {}) : (d.data || d)) }));
@@ -1735,6 +1744,7 @@ function renderPjPanel(p){
   const rd = (gameDoc() || {}).round || {};
   const hpPct = mine.hpMax > 0 ? clamp((mine.hp || 0) / mine.hpMax * 100, 0, 100) : 0;
   // Ficha
+  const sheetAt = html.length;
   html += '<div class="card"><div class="sheet-head"><div class="sheet-av" style="' + avatarStyle(mine) + '">' + (mine.imgUrl ? '' : esc((mine.name || '?').charAt(0).toUpperCase())) + '</div>' +
     '<div class="grow"><div style="font:800 19px Cinzel,serif">' + esc(mine.name) + '</div><div class="muted">' + esc(raceCls(mine)) + '</div>' +
     (mine.hpMax > 0 ? '<div class="hpbar"><i style="width:' + hpPct + '%"></i></div>' : '') + '</div></div>' +
@@ -1746,9 +1756,11 @@ function renderPjPanel(p){
     xpBarHtml(mine) +
     '<div class="row between" style="margin-top:8px"><span class="mini">Movimiento: ' + esc(mine.moveDie || '1d6') + '</span><button class="small" id="btnRelease">Cambiar de PJ</button></div></div>';
   html += equipHtml(mine);
+  const turnAt = html.length;
   // Ronda
   const ko = mine.hpMax > 0 && (mine.hp || 0) <= 0;
-  html += '<div class="section-title">Tu turno</div><div class="card">';
+  const myMove = rd.active && onMap && !ko && !(rd.done || {})[mine.id];
+  html += '<div class="section-title' + (myMove ? ' turn-now' : '') + '">' + (myMove ? '⚔ Te toca actuar' : 'Tu turno') + '</div><div class="card' + (myMove ? ' turn-now' : '') + '">';
   if (!onMap){
     const where = mine.mapId && S.maps[mine.mapId] ? '«' + esc(S.maps[mine.mapId].name) + '»' : 'el banquillo (fuera de cualquier mapa)';
     html += '<div class="muted">🧭 Tu personaje está en ' + where + '. ' + (m ? 'El DM te traerá a este mapa cuando llegue el momento.' : 'El DM aún no ha activado ningún mapa.') + '</div>';
@@ -1791,6 +1803,8 @@ function renderPjPanel(p){
     }
   }
   html += '</div>';
+  // Si hay que actuar, el turno va arriba del todo (en el móvil no hay que bajar hasta él)
+  if (myMove){ const sheet = html.slice(sheetAt, turnAt), turn = html.slice(turnAt); html = html.slice(0, sheetAt) + turn + sheet; }
   // Inventario
   const inv = mine.inventory || { slots: 5, items: [] };
   const items = inv.items || [];
@@ -2088,7 +2102,7 @@ const HELP_KEYS_DM = [
 const HELP_KEYS_PL = [
   ['🧙', 'Mi PJ', 'Tu ficha: PV, CA, características, equipo, acciones de ronda e inventario.'],
   ['🎲', 'Dados', 'Tira dados y escribe mensajes al grupo.'],
-  ['⚔', 'Iniciativa', 'Orden de turnos cuando el DM inicia un combate.'],
+  ['⚔', 'Rondas', 'Rondas libres y orden de iniciativa cuando el DM inicia un combate.'],
   ['🎲 Mover', 'Moverte', 'Tira tu dado de movimiento y toca una casilla iluminada del mapa.'],
   ['⚔ Atacar', 'Atacar', 'Elige un ataque (los bloqueados se abren al subir de nivel) y luego el enemigo.'],
   ['⏭ Pasar', 'Pasar', 'Termina tu ronda sin hacer nada.'],
@@ -2115,7 +2129,7 @@ function helpSections(){
     '<h3>Tu personaje</h3><ol><li>En <b>🧙 Mi PJ</b> pulsa <b>Este es mi personaje</b> en el que te haya preparado el DM.</li><li>En el mapa solo verás lo que ve tu PJ: la niebla tapa lo demás.</li><li>Tu ficha muestra PV, CA, nivel, características, equipo e inventario.</li></ol>' +
     '<div class="help-tip">💡 Quien mueve los tokens es el DM. Tú solo te mueves en tu acción de ronda.</div>']);
   if (inGame) secs.push(['round', '⚔ Rondas',
-    '<h3>Rondas libres</h3><ol><li>El DM abre la ronda (pestaña ⚔ Iniciativa).</li><li>Cada jugador, sin orden, elige <b>una</b> acción: <b>🎲 Mover</b> (tira el dado y toca una casilla iluminada), <b>⚔ Atacar</b> (elige ataque y enemigo a tu alcance y a la vista) o <b>⏭ Pasar</b>.</li><li>Cuando todos han actuado, el DM pulsa <b>Siguiente ronda</b>.</li></ol>' +
+    '<h3>Rondas libres</h3><ol><li>El DM abre la ronda (pestaña ⚔ Rondas).</li><li>Cada jugador, sin orden, elige <b>una</b> acción: <b>🎲 Mover</b> (tira el dado y toca una casilla iluminada), <b>⚔ Atacar</b> (elige ataque y enemigo a tu alcance y a la vista) o <b>⏭ Pasar</b>.</li><li>Cuando todos han actuado, el DM pulsa <b>Siguiente ronda</b>.</li></ol>' +
     '<h3>Combate</h3><ul><li>El ataque tira d20 + tu bonificador contra la CA del enemigo. Un 20 es crítico (doble daño).</li><li>Los monstruos responden: contraatacan si les golpeas a su alcance y atacan si entras en su zona con línea de visión.</li><li>A 0 PV los monstruos desaparecen y su experiencia se reparte; un PJ a 0 PV queda inconsciente y no puede actuar.</li><li>Los ataques nuevos de tu clase se desbloquean al subir de nivel.</li></ul>' +
     (dm ? '<h3>Iniciativa clásica</h3><p>Si prefieres turnos ordenados: <b>＋ Tokens del mapa</b>, <b>🎲 Tirar iniciativas</b> e <b>Iniciar combate</b>.</p>' : '')]);
   if (inGame) secs.push(['items', '🎒 Objetos y equipo',
@@ -2162,7 +2176,7 @@ function tourSteps(){
   const tab = n => () => selectTab(n);
   const common0 = [{ sel: '#btnHelp', t: 'Ayuda siempre a mano', d: 'Este botón abre la ayuda: para qué sirve cada botón, cómo funcionan las rondas y los objetos, y este tutorial.' }];
   if (S.isDM) return common0.concat([
-    { sel: '#tabs', t: 'Pestañas del DM', d: 'Aquí organizas la partida: Mapas, Tokens, Iniciativa (y rondas) y Dados.' },
+    { sel: '#tabs', t: 'Pestañas del DM', d: 'Aquí organizas la partida: Mapas, Tokens, Rondas (e iniciativa), Dados y Sonido.' },
     { sel: '#tabMapsBtn', t: '1 · Importa un mapa', d: 'Sube el export de Dungeon Alchemist (JSON de Foundry + imagen, o .dd2vtt). Luego pulsa «Activar» para que todos lo vean.', pre: tab('maps') },
     { sel: '#tabs button[data-tab="tokens"]', t: '2 · Crea los tokens', d: 'Crea los PJ (tipo PJ, con clase y raza) y los monstruos. Los monstruos ocultos no los ven los jugadores. También aquí das objetos al grupo.', pre: tab('tokens') },
     { sel: '#tabs button[data-tab="init"]', t: '3 · Rondas y combate', d: 'Abre una ronda: cada jugador hace una acción (mover, atacar o pasar) desde su móvil. Cuando acaben todos, pasa a la siguiente.', pre: tab('init') },
@@ -2969,7 +2983,7 @@ function publishRoll(formula, res, priv){
 function renderDicePanel(p){
   let html = '<div class="dice-grid">' +
     ['d4','d6','d8','d10','d12','d20','d100'].map(d => '<button class="qd" data-d="' + d + '">' + d + '</button>').join('') +
-    '<button id="d20adv" title="2d20, se queda el mayor">VENT</button></div>' +
+    '<button id="d20adv" title="2d20, se queda el mayor">Ventaja</button></div>' +
     '<div class="row"><button id="d20dis" class="small" style="flex:1" title="2d20, se queda el menor">d20 desventaja</button>' +
     '<label class="row" style="gap:4px"><input type="checkbox" id="rollPriv" style="width:auto"> oculta</label>' +
     '<label class="row" style="gap:4px" title="Ver los dados rodar en 3D sobre el mapa"><input type="checkbox" id="dice3dOn" style="width:auto"' + (dice3dEnabled() ? ' checked' : '') + '> 3D</label></div>' +
