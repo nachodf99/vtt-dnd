@@ -1,4 +1,4 @@
-import asyncio, json, time
+import asyncio, json, time, os
 from playwright.async_api import async_playwright
 
 src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'e2e.py')).read().split('async def main(step):')[0]
