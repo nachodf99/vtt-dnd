@@ -90,6 +90,17 @@ Copia `config.local.example.js` como `config.local.js` con las claves del proyec
 - **Niebla explorada guardada** por jugador y mapa (en el dispositivo y en Supabase). El DM la reinicia para todos desde 🗺 Mapas.
 - **🎵 Sonido**: el DM sube música (una a la vez) y ambientes (se mezclan); suenan sincronizados en todos los dispositivos. Cada uno ajusta su volumen o silencia; si el navegador bloquea el audio aparece «🔈 Activar sonido». El proyector no reproduce audio para no duplicarlo.
 
+## Inmersión (en `develop`)
+- **Luz viva**: las antorchas y luces parpadean; el borde de la visión es suave y lo explorado que ya no se ve queda en sepia.
+- **Combate con respuesta**: números de daño y curación flotando, «Fallo», «¡Pifia!» y «¡CRÍTICO!» sobre el objetivo, destello rojo y temblor al recibir un golpe, calavera al morir un monstruo. El móvil vibra cuando te golpean o te toca actuar.
+- **Cartel de ronda** («Ronda 3 · Te toca actuar») y **cambio de escena** con fundido y el nombre del lugar al activar otro mapa.
+- **📜 Leer a la mesa**: el DM escribe una descripción y aparece como pergamino en el proyector y en los móviles (sin guardar nada en la base de datos).
+- **Clima** por mapa (lluvia, tormenta, nieve, ceniza, niebla) en 🗺 Mapas.
+- **Efectos de sonido** sintetizados (dados, golpes, fallos, puertas, rondas, pergamino), con el mismo volumen que la música. El proyector no suena.
+- **Aspecto**: paneles con grano de cuero, ficha con retrato enmarcado y PV como un vial, tokens como medallones (oro para PJ, plata para PNJ, bronce para monstruos) y halo dorado en tu PJ cuando te toca.
+- **🕯 Modo inmersivo** para jugadores en ordenador o tableta: solo el mapa y una barra con tus acciones (Esc para salir).
+- Se respeta «reducir movimiento» del sistema. Fuente EB Garamond (OFL) para el pergamino.
+
 ## Pruebas automáticas
 `tools/pruebas/` contiene un servidor que imita Supabase (auth anónima, REST con las políticas RLS reales sobre un PostgreSQL local, storage y realtime) y tres baterías de pruebas de extremo a extremo con varios jugadores a la vez. Instrucciones en `tools/pruebas/LEEME.md`.
 

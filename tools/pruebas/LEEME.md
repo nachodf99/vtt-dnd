@@ -28,5 +28,6 @@ python3 tools/pruebas/make_assets.py
 python3 tools/pruebas/e2e.py    # luces, visión, regla, plantillas, explorado, sonido (35 comprobaciones)
 python3 tools/pruebas/e2e2.py   # UVTT, antorchas, autoplay bloqueado, mezcla de pistas, proyector, reloj desfasado, rendimiento
 python3 tools/pruebas/e2e3.py   # móvil: toques, arrastre, ocultar mapa, rondas mientras el DM cambia la música
+python3 tools/pruebas/e2e4_inmersion.py   # lluvia, parpadeo, cartel de ronda, ataques hasta matar, calavera, pergamino, cambio de escena, modo inmersivo
 ```
 Las pruebas vacían las tablas de la base de datos **de pruebas** al empezar. Nunca apuntes el servidor simulado a un proyecto real.

@@ -1,6 +1,7 @@
 import asyncio, json, time
 from playwright.async_api import async_playwright
-import os
+import importlib.util
+spec = importlib.util.spec_from_file_location('e2e', '/home/claude/mocksb/e2e.py')
 src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'e2e.py')).read().split('async def main(step):')[0]
 ns = {}; exec(src, ns)
 psql, check, new_client, wait_loaded, map_to_screen, dump, results, APP = ns['psql'], ns['check'], ns['new_client'], ns['wait_loaded'], ns['map_to_screen'], ns['dump'], ns['results'], ns['APP']
@@ -77,6 +78,7 @@ async def main():
         await q.wait_for_function("document.getElementById('gameBadge').style.display !== 'none'", timeout=20000)
         await q.wait_for_timeout(1500)
         btn = await q.inner_text('#btnAudio'); st = await q.evaluate("window.__audios.map(a => a.paused)")
+        print('   debug', await q.evaluate("[navigator.userActivation.hasBeenActive, HTMLMediaElement.prototype.play.toString().slice(0,60), window.__audios.length]"))
         check('Sin interacción: el jugador ve «Activar sonido»', 'Activar sonido' in btn and st == [True], '%s %s' % (btn, st))
         await q.click('#btnAudio'); await q.wait_for_timeout(800)
         st = await q.evaluate("window.__audios.map(a => a.paused)"); btn = await q.inner_text('#btnAudio')
@@ -164,9 +166,12 @@ async def main():
         mid = psql("select data->>'activeMapId' from games where id='%s'" % gid)
         psql("update tokens set data = data || jsonb_build_object('mapId','%s','x',2050,'y',1450) where id='%s'" % (mid, borin))
         await pl.wait_for_timeout(2500)
+        for pg_ in (dm, pl, pr): await pg_.evaluate("window.__pauseFx(true)")   # medir sin el parpadeo de las otras ventanas
+        await pl.wait_for_timeout(300)
         ms = await pl.evaluate("(() => { const t0 = performance.now(); for (let i = 0; i < 5; i++) window.__recompute(); return (performance.now() - t0) / 5; })()")
         msl = await pl.evaluate("(() => { window.__resetLightCache(); const t0 = performance.now(); window.__recompute(); return performance.now() - t0; })()")
         check('Recalcular niebla+luces en mapa grande < 60 ms (con luces en caché)', ms < 60, '%.1f ms (primera vez con 80 luces: %.0f ms)' % (ms, msl))
+        for pg_ in (dm, pl, pr): await pg_.evaluate("window.__pauseFx(false)")
         await pl.screenshot(path='/tmp/e2e2_big.png')
 
         for who, pg in (('DM', dm), ('Jugador', pl), ('Proyector', pr)):

@@ -353,6 +353,8 @@ function applyRole(){
   $('#btnFog').style.display = S.isDM ? '' : 'none';
   $('#btnWalls').style.display = S.isDM ? '' : 'none';
   $('#btnSpawn').style.display = (S.isDM && !S.projector) ? '' : 'none';
+  $('#btnNarrate').style.display = (S.isDM && S.gameId && !S.projector) ? '' : 'none';
+  updateImmBar();
   $('#tabMapsBtn').style.display = S.isDM ? '' : 'none';
   $('#emptyImportBtn').style.display = S.isDM ? '' : 'none';
   $('#emptyState .big').textContent = S.projector ? 'La aventura está a punto de comenzar' : 'No hay mapa activo';
@@ -737,6 +739,7 @@ function joinGame(id, silent){
   updateQR();
   maybeOfferTour();
   syncAudio();   // si ya suena música en la partida, empezar a oírla al entrar
+  fxEnterGame(); // la ronda en curso al entrar no es «nueva»: no anunciarla
 }
 function leaveGame(){
   S.gameId = null; S.isDM = false; S.lobbyManual = true;
@@ -769,6 +772,8 @@ function joinRoomFor(id){
     }
   });
   ch.on('broadcast', { event: 'ruler' }, p => onRemoteRuler(p && p.payload));
+  ch.on('broadcast', { event: 'narrate' }, p => showNarration(p && p.payload, false));
+  ch.on('broadcast', { event: 'narrate-close' }, p => hideNarration(p && p.payload && p.payload.id));
   ch.on('presence', { event: 'sync' }, () => {
     try {
       const st = ch.presenceState();
@@ -827,18 +832,18 @@ function startSubscriptions(){
       const dmNow = !!(g && g.dmId === S.uid);
       if (dmNow !== S.isDM){ S.isDM = dmNow; applyRole(); }
     }
-    updateGameBadge(); syncFromGame(); renderLobby(); renderCombatBadge(); renderPanel(); needsDraw(); updateQR(); syncAudio();
+    updateGameBadge(); syncFromGame(); renderLobby(); renderCombatBadge(); renderPanel(); needsDraw(); updateQR(); syncAudio(); fxOnGame(); updateImmBar();
   });
   DB.collection('maps').onSnapshot(snap => {
     const arr = snapDocs(snap); S.maps = {};
     arr.forEach(m => { S.maps[m.id] = m; });
     checkExploredResets();
-    S.fogDirty = true; loadActiveMedia(); renderPanel(); needsDraw(); updateProjTitle();
+    S.fogDirty = true; loadActiveMedia(); renderPanel(); needsDraw(); updateProjTitle(); fxOnMaps(); fxSceneName();
   });
   DB.collection('tokens').onSnapshot(snap => {
     const arr = snapDocs(snap); S.tokens = {};
     arr.forEach(t => { S.tokens[t.id] = t; });
-    S.fogDirty = true; renderPanel(); needsDraw(); followMyPC();
+    S.fogDirty = true; renderPanel(); needsDraw(); followMyPC(); fxOnTokens();
   });
   DB.collection('templates').onSnapshot(snap => {
     S.templates = snapDocs(snap);
@@ -847,6 +852,7 @@ function startSubscriptions(){
   DB.collection('rolls').onSnapshot(snap => {
     const all = snapDocs(snap);
     S.rolls = all.sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 120);
+    fxOnRolls(all);
     if (S.tab === 'dice') renderPanel();
     animateNewRolls(S.rolls);
   });
@@ -856,7 +862,7 @@ function syncFromGame(){
   const newMap = g ? (g.activeMapId || null) : null;
   if (newMap !== S.activeMapId){
     S.activeMapId = newMap; S.fogDirty = true; loadActiveMedia();
-    S.tplDraft = null; updateProjTitle();
+    S.tplDraft = null; updateProjTitle(); fxScene(newMap); fxOnMaps();
     if (S.ruler){ S.ruler = null; updateRulerBar(); rulerSend(true); }
   } else {
     $('#emptyState').style.display = (S.gameId && !newMap) ? 'flex' : (newMap ? 'none' : 'flex');
@@ -1141,10 +1147,14 @@ let fogReady = false;
 const seenCanvas = document.createElement('canvas');   // lo que se ve AHORA (línea de visión ∩ luz)
 const darkCanvas = document.createElement('canvas');   // capa de oscuridad con las luces recortadas
 const glowCanvas = document.createElement('canvas');   // color de las luces
+const softCanvas = document.createElement('canvas');   // lo visto ahora, con el borde difuminado
+const lowCanvas = document.createElement('canvas');    // auxiliar para difuminar a baja resolución
+const sepiaCanvas = document.createElement('canvas');  // lo explorado que ya no se ve (se tiñe de sepia)
+let sepiaReady = false;
 function polyPath(c, p){ if (p.length > 5){ c.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) c.lineTo(p[i], p[i + 1]); c.closePath(); } }
 function fillPoly(c, p){ c.beginPath(); polyPath(c, p); c.fill(); }
 function recomputeFog(){
-  S.fogDirty = false; S.visPolys = []; S.visInfo = []; S.lights = []; S.needLight = false; fogReady = false;
+  S.fogDirty = false; S.visPolys = []; S.visInfo = []; S.lights = []; S.needLight = false; fogReady = false; sepiaReady = false;
   const m = activeMap(); if (!m || !S.media.w) return;
   const remember = m.rememberExplored !== false;
   const segs = wallSegs(m, true);
@@ -1159,9 +1169,11 @@ function recomputeFog(){
     S.visPolys.push(poly);
     S.visInfo.push({ x: t.x, y: t.y, poly, dv: darkvisionOf(t) * g });
   });
-  const fs = Math.min(1, 2000 / Math.max(S.media.w, S.media.h));
+  const fs = Math.min(1, 1600 / Math.max(S.media.w, S.media.h));
   const W = Math.max(1, Math.round(S.media.w * fs)), H = Math.max(1, Math.round(S.media.h * fs));
-  [fogCanvas, seenCanvas, darkCanvas, glowCanvas].forEach(c => { if (c.width !== W || c.height !== H){ c.width = W; c.height = H; } });
+  [fogCanvas, seenCanvas, darkCanvas, glowCanvas, softCanvas].forEach(c => { if (c.width !== W || c.height !== H){ c.width = W; c.height = H; } });
+  const SW = Math.max(1, Math.round(W / 2)), SH = Math.max(1, Math.round(H / 2));   // el sepia es un tinte difuso: basta a media resolución
+  if (sepiaCanvas.width !== SW || sepiaCanvas.height !== SH){ sepiaCanvas.width = SW; sepiaCanvas.height = SH; }
   // 1) Lo que se ve ahora
   const sc = seenCanvas.getContext('2d');
   sc.globalCompositeOperation = 'source-over'; sc.clearRect(0, 0, W, H);
@@ -1182,14 +1194,40 @@ function recomputeFog(){
     ex.getContext('2d').drawImage(seenCanvas, 0, 0, ex.width, ex.height);
     if (playerFogActive() && remember) scheduleExploredSave(m.id);
   }
-  // 3) Niebla
+  // 3) Niebla, con el borde de la visión difuminado (unos 0,3 casillas)
+  const so = softCanvas.getContext('2d');
+  so.clearRect(0, 0, W, H);
+  // Borde suave sin filtros (más rápido en todos los navegadores, también Safari): se reduce
+  // la máscara a 1/6 y se vuelve a ampliar con suavizado; luego se recorta a lo visible, así
+  // el difuminado va solo hacia dentro y no deja ver nada tras los muros.
+  // (el DM ve la niebla solo como velo: para él basta el borde nítido)
+  const pfog = playerFogActive();
+  const q = 6, sw = Math.max(1, Math.round(W / q)), sh = Math.max(1, Math.round(H / q));
+  if (lowCanvas.width !== sw || lowCanvas.height !== sh){ lowCanvas.width = sw; lowCanvas.height = sh; }
+  const lo = lowCanvas.getContext('2d');
+  lo.clearRect(0, 0, sw, sh); lo.imageSmoothingEnabled = true; lo.imageSmoothingQuality = 'high';
+  lo.drawImage(seenCanvas, 0, 0, sw, sh);
+  if (pfog){
+    so.imageSmoothingEnabled = true; so.imageSmoothingQuality = 'high'; so.drawImage(lowCanvas, 0, 0, W, H);
+    so.globalCompositeOperation = 'destination-in'; so.drawImage(seenCanvas, 0, 0); so.globalCompositeOperation = 'source-over';
+  } else so.drawImage(seenCanvas, 0, 0);
   const fc = fogCanvas.getContext('2d');
   fc.globalCompositeOperation = 'source-over'; fc.globalAlpha = 1;
   fc.clearRect(0, 0, W, H); fc.fillStyle = '#000'; fc.fillRect(0, 0, W, H);
   fc.globalCompositeOperation = 'destination-out';
   if (remember){ fc.globalAlpha = 0.35; fc.drawImage(ex, 0, 0, W, H); fc.globalAlpha = 1; }
-  fc.drawImage(seenCanvas, 0, 0);
+  fc.drawImage(softCanvas, 0, 0);
   fc.globalCompositeOperation = 'source-over';
+  // 3b) Tinte sepia para lo explorado que ahora no se ve
+  if (remember && pfog){
+    const sp = sepiaCanvas.getContext('2d');
+    sp.globalCompositeOperation = 'source-over'; sp.clearRect(0, 0, SW, SH);
+    sp.drawImage(ex, 0, 0, SW, SH);
+    sp.globalCompositeOperation = 'destination-out'; sp.drawImage(lowCanvas, 0, 0, SW, SH);
+    sp.globalCompositeOperation = 'source-in'; sp.fillStyle = '#7a5428'; sp.fillRect(0, 0, SW, SH);
+    sp.globalCompositeOperation = 'source-over';
+    sepiaReady = true;
+  }
   // 4) Oscuridad y color de las luces
   const dc = darkCanvas.getContext('2d'), gc = glowCanvas.getContext('2d');
   dc.globalCompositeOperation = 'source-over'; dc.clearRect(0, 0, W, H);
@@ -1214,6 +1252,14 @@ function recomputeFog(){
     dc.restore(); gc.restore();
   }
   fogReady = true;
+}
+function shade(hex, k){
+  const c = hexRgb(hex).split(',').map(Number);
+  return 'rgb(' + c.map(v => Math.round(k >= 0 ? v + (255 - v) * k : v * (1 + k))).join(',') + ')';
+}
+function roundRect(c, x, y, w, h, r){
+  r = Math.min(r, w / 2, h / 2);
+  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
 }
 function hexRgb(h){
   h = String(h || '#ffb35c').replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join('');
@@ -1271,7 +1317,8 @@ function draw(){
   if (!m || !S.gameId){ const ph = $('#pickHint'); if (ph) ph.style.display = 'none'; return; }
   if (S.fogDirty) recomputeFog();
   ctx.save();
-  ctx.translate(S.cam.x, S.cam.y); ctx.scale(S.cam.s, S.cam.s);
+  const [shx, shy] = shakeOffset();
+  ctx.translate(S.cam.x + shx, S.cam.y + shy); ctx.scale(S.cam.s, S.cam.s);
   if (S.media.video) ctx.drawImage(S.media.video, 0, 0, S.media.w, S.media.h);
   else if (S.media.img) ctx.drawImage(S.media.img, 0, 0, S.media.w, S.media.h);
   else { ctx.fillStyle = '#1a150f'; ctx.fillRect(0, 0, S.media.w || 2000, S.media.h || 1400); }
@@ -1307,8 +1354,11 @@ function draw(){
     ctx.globalAlpha = (S.isDM && !S.viewAsPlayer) ? 0.55 : 1;
     ctx.drawImage(darkCanvas, 0, 0, S.media.w, S.media.h);
     ctx.globalAlpha = 1;
+    drawFlicker(m);
   }
   if (fogOn){
+    // lo explorado y no visto ahora: en sepia, como un mapa antiguo
+    if (fogReady && sepiaReady){ ctx.save(); ctx.globalCompositeOperation = 'color'; ctx.globalAlpha = 0.85; ctx.drawImage(sepiaCanvas, 0, 0, S.media.w, S.media.h); ctx.restore(); }
     if (fogReady) ctx.drawImage(fogCanvas, 0, 0, S.media.w, S.media.h);
     else { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, S.media.w, S.media.h); }
   } else if (S.isDM && m.fog !== false && S.viewAsPlayer === false){
@@ -1360,6 +1410,7 @@ function draw(){
     ctx.beginPath(); ctx.arc(p.x, p.y, 10 + k * g * 1.6, 0, Math.PI * 2); ctx.stroke();
   });
   if (S.pings.length) needsDraw();
+  drawFx(m, g);
   drawRulers(m, g);
   ctx.restore();
   sendCamToProjector();
@@ -1389,8 +1440,17 @@ function drawToken(t, m, ghost){
   if (S.drag && S.drag.tokenId === t.id){ x = S.drag.curX; y = S.drag.curY; }
   ctx.save();
   if (ghost) ctx.globalAlpha = 0.45;
-  ctx.fillStyle = 'rgba(0,0,0,.45)';
-  ctx.beginPath(); ctx.ellipse(x + r * 0.08, y + r * 0.12, r, r * 0.92, 0, 0, Math.PI * 2); ctx.fill();
+  // sombra proyectada
+  ctx.fillStyle = 'rgba(0,0,0,.5)';
+  ctx.beginPath(); ctx.ellipse(x + r * 0.1, y + r * 0.16, r * 1.04, r * 0.96, 0, 0, Math.PI * 2); ctx.fill();
+  // mi PJ cuando me toca: halo dorado que respira
+  const mineNow = !S.isDM && t.ownerId === S.uid && myTurnNow();
+  if (mineNow){
+    const k = REDUCE_MOTION ? 0.5 : 0.5 + 0.5 * Math.sin(performance.now() / 380);
+    const gh = ctx.createRadialGradient(x, y, r * 0.9, x, y, r * 1.75);
+    gh.addColorStop(0, 'rgba(255,214,90,' + (0.35 + 0.3 * k).toFixed(3) + ')'); gh.addColorStop(1, 'rgba(255,214,90,0)');
+    ctx.fillStyle = gh; ctx.beginPath(); ctx.arc(x, y, r * 1.75, 0, Math.PI * 2); ctx.fill();
+  }
   const im = tokenImage(t);
   if (im){
     ctx.save();
@@ -1402,15 +1462,33 @@ function drawToken(t, m, ghost){
     ctx.strokeStyle = t.color || '#555';
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
   } else {
-    ctx.fillStyle = t.color || '#555';
+    // esmalte con volumen: luz arriba a la izquierda
+    const base = t.color || '#555';
+    const gf = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
+    gf.addColorStop(0, shade(base, 0.35)); gf.addColorStop(0.6, base); gf.addColorStop(1, shade(base, -0.35));
+    ctx.fillStyle = gf;
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.font = '700 ' + (r * 0.85) + 'px Inter';
+    ctx.font = '700 ' + (r * 0.9) + 'px Cinzel, serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText((t.name || '?').trim().charAt(0).toUpperCase(), x, y + 1);
+    ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillText((t.name || '?').trim().charAt(0).toUpperCase(), x + r * 0.04, y + r * 0.08);
+    ctx.fillStyle = '#fff8e8'; ctx.fillText((t.name || '?').trim().charAt(0).toUpperCase(), x, y + 1);
   }
-  ctx.lineWidth = Math.max(2, g * 0.045);
-  ctx.strokeStyle = t.type === 'pc' ? '#e8ddc8' : (t.type === 'npc' ? '#7fb3d5' : '#1a1109');
+  // borde metálico según el tipo: oro (PJ), plata azulada (PNJ), bronce oscuro (monstruo)
+  const metal = t.type === 'pc' ? ['#fff0b8', '#c9a227', '#6e5512'] : t.type === 'npc' ? ['#e6f2ff', '#8fb3d0', '#3d5a73'] : ['#e0a27a', '#8c3b26', '#3a140c'];
+  const rw = Math.max(2.5, g * 0.06);
+  const gm = ctx.createLinearGradient(x - r, y - r, x + r, y + r);
+  gm.addColorStop(0, metal[0]); gm.addColorStop(0.45, metal[1]); gm.addColorStop(1, metal[2]);
+  ctx.lineWidth = rw; ctx.strokeStyle = gm;
   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = Math.max(1, rw * 0.3); ctx.strokeStyle = 'rgba(0,0,0,.55)';
+  ctx.beginPath(); ctx.arc(x, y, r - rw * 0.6, 0, Math.PI * 2); ctx.stroke();
+  // destello rojo al recibir daño
+  const fl = FX.flash[t.id];
+  if (fl){
+    const k = (performance.now() - fl) / 450;
+    if (k < 1){ ctx.fillStyle = 'rgba(255,40,20,' + (0.55 * (1 - k)).toFixed(3) + ')'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); needsDraw(); }
+    else delete FX.flash[t.id];
+  }
   if (ghost){ ctx.setLineDash([6, 5]); ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
   if (t.hpMax > 0){
     const pct = clamp((t.hp || 0) / t.hpMax, 0, 1);
@@ -1423,10 +1501,12 @@ function drawToken(t, m, ghost){
   ctx.font = '600 ' + Math.max(11, g * 0.22) + 'px Inter';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const tw = ctx.measureText(t.name || '').width;
-  ctx.fillStyle = 'rgba(0,0,0,.65)';
-  ctx.fillRect(x - tw / 2 - 5, y + r + 4, tw + 10, g * 0.3);
-  ctx.fillStyle = '#fff';
-  ctx.fillText(t.name || '', x, y + r + 4 + g * 0.15);
+  const lh = Math.max(15, g * 0.3), lx = x - tw / 2 - 7, ly = y + r + 5;
+  ctx.fillStyle = 'rgba(16,12,9,.82)';
+  roundRect(ctx, lx, ly, tw + 14, lh, lh / 2); ctx.fill();
+  ctx.lineWidth = 1; ctx.strokeStyle = t.type === 'pc' ? 'rgba(201,162,39,.7)' : 'rgba(255,255,255,.12)'; ctx.stroke();
+  ctx.fillStyle = t.type === 'pc' ? '#f2e3b8' : '#eee';
+  ctx.fillText(t.name || '', x, ly + lh / 2 + 0.5);
   if (t.burning){
     ctx.font = (r * 0.8) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('🔥', x + r * 0.75, y - r * 0.75);
@@ -1791,7 +1871,7 @@ function renderPjPanel(p){
   const sheetAt = html.length;
   html += '<div class="card"><div class="sheet-head"><div class="sheet-av" style="' + avatarStyle(mine) + '">' + (mine.imgUrl ? '' : esc((mine.name || '?').charAt(0).toUpperCase())) + '</div>' +
     '<div class="grow"><div style="font:800 19px Cinzel,serif">' + esc(mine.name) + '</div><div class="muted">' + esc(raceCls(mine)) + '</div>' +
-    (mine.hpMax > 0 ? '<div class="hpbar"><i style="width:' + hpPct + '%"></i></div>' : '') + '</div></div>' +
+    (mine.hpMax > 0 ? '<div class="vial' + (hpPct <= 30 ? ' low' : '') + '" role="meter" aria-label="Puntos de vida" aria-valuemin="0" aria-valuemax="' + mine.hpMax + '" aria-valuenow="' + (mine.hp || 0) + '"><i style="width:' + hpPct + '%"></i><span>' + (mine.hp || 0) + ' / ' + mine.hpMax + ' PV</span></div>' : '') + '</div></div>' +
     '<div class="stat-row"><div class="stat"><b>' + (mine.hp || 0) + '/' + (mine.hpMax || 0) + '</b><span>PV</span></div>' +
     '<div class="stat"><b>' + (mine.ac || '—') + '</b><span>CA</span></div>' +
     '<div class="stat"><b>' + levelOf(mine) + '</b><span>Nivel</span></div>' +
@@ -2136,6 +2216,8 @@ const HELP_KEYS_DM = [
   ['📐', 'Plantillas de área', 'Círculo, cono, línea o cubo: arrastra desde el origen y se marcan las casillas afectadas. Toca una para borrarla.'],
   ['💡', 'Luces', 'Con 🧱 activado ves las luces importadas de Dungeon Alchemist; tócalas para encenderlas o apagarlas. La oscuridad se ajusta en 🗺 Mapas.'],
   ['🎵', 'Sonido', 'Sube música y ambientes y dales a ▶: suenan sincronizados en todos los dispositivos.'],
+  ['📜', 'Leer a la mesa', 'Escribe una descripción y aparece como un pergamino en el proyector y en los móviles. «Retirar para todos» lo cierra.'],
+  ['🌧', 'Clima', 'En 🗺 Mapas → Luz y oscuridad: lluvia, tormenta, nieve, ceniza o niebla sobre el mapa.'],
   ['☰', 'Panel lateral', 'Oculta o muestra el panel para ver el mapa más grande.'],
   ['👁', 'Ver como jugador', 'Previsualiza exactamente lo que ven los jugadores (niebla incluida).'],
   ['📽', 'Proyector', 'Abre una segunda ventana con la vista de jugador para la tele o el proyector.'],
@@ -2156,7 +2238,8 @@ const HELP_KEYS_PL = [
   ['＋ ⛶', 'Zoom y ajustar', 'Acerca, aleja o encaja el mapa. También pellizcando.'],
   ['📏', 'Regla', 'Toca o arrastra sobre el mapa para medir distancias, con varios puntos. El resto del grupo ve tu medida.'],
   ['📐', 'Plantillas de área', 'Para conjuros como Bola de fuego: elige forma y arrastra desde el origen. Toca la tuya para borrarla.'],
-  ['🔊', 'Sonido', 'La música que pone el DM. Si sale «Activar sonido», tócalo; en 🎵 Sonido ajustas tu volumen.']
+  ['🔊', 'Sonido', 'La música que pone el DM. Si sale «Activar sonido», tócalo; en 🎵 Sonido ajustas tu volumen.'],
+  ['🕯', 'Modo inmersivo', 'En ordenador o tableta: solo el mapa y una barra con tus acciones. Esc para salir.']
 ];
 function helpKeys(list){ return list.map(([k, t, d]) => '<div class="help-key"><div class="k">' + esc(k) + '</div><div><b>' + esc(t) + '</b><span>' + esc(d) + '</span></div></div>').join(''); }
 function helpSections(){
@@ -2354,6 +2437,8 @@ if (projBC){
     if (S.projector){
       if (msg.type === 'cam' && msg.gameId === S.gameId) applyCamFromDM(msg);
       if (msg.type === 'fit') fitView();
+      if (msg.type === 'narrate') showNarration(msg.d, false);
+      if (msg.type === 'narrate-close') hideNarration(msg.id);
     } else {
       if (msg.type === 'hello' && msg.gameId === S.gameId){
         if (!S.projectorOpen){ S.projectorOpen = true; applyRole(); }
@@ -2408,6 +2493,7 @@ function selectTab(name){
 }
 $$('#tabs button').forEach(b => b.onclick = () => selectTab(b.dataset.tab));
 function renderPanel(){
+  try { updateImmBar(); } catch(e){}
   const p = $('#panel');
   if (!S.gameId){ p.innerHTML = '<div class="muted">Entra en una partida para empezar.</div>'; return; }
   if (S.tab === 'maps') renderMapsPanel(p);
@@ -2469,7 +2555,9 @@ function renderMapsPanel(p){
       '<div class="row between"><label>Oscuridad del mapa</label><span class="row"><input type="range" id="setDark" min="0" max="100" step="5" value="' + Math.round(mapDarkness(m) * 100) + '" style="width:120px"><b id="setDarkV" style="min-width:38px; text-align:right">' + Math.round(mapDarkness(m) * 100) + '%</b></span></div>' +
       '<div class="mini" style="margin-top:4px">Desde el ' + Math.round(DARK_SEE * 100) + '% los PJ solo ven lo iluminado o con visión en la oscuridad (elfos, enanos, gnomos, semielfos, semiorcos y tiflin: 12 casillas).</div>' +
       '<div class="row between" style="margin-top:8px"><label>Luces del mapa: ' + (m.lights || []).length + (Object.keys(m.lightsOff || {}).length ? ' (' + Object.keys(m.lightsOff || {}).length + ' apagadas)' : '') + ' · tamaño ×</label><input type="number" id="setLightScale" step="0.25" min="0.25" value="' + (m.lightScale > 0 ? m.lightScale : 1) + '" style="width:70px"></div>' +
-      '<div class="mini" style="margin-top:4px">' + ((m.lights || []).length ? 'Con 🧱 activado verás las luces (💡): tócalas para encenderlas o apagarlas. Si el radio no cuadra con el dibujo, cambia el tamaño.' : 'Este mapa no trae luces. Reimpórtalo desde Dungeon Alchemist (export de Foundry o .dd2vtt) para traerlas, o da antorchas a los tokens.') + '</div></div>';
+      '<div class="mini" style="margin-top:4px">' + ((m.lights || []).length ? 'Con 🧱 activado verás las luces (💡): tócalas para encenderlas o apagarlas. Si el radio no cuadra con el dibujo, cambia el tamaño.' : 'Este mapa no trae luces. Reimpórtalo desde Dungeon Alchemist (export de Foundry o .dd2vtt) para traerlas, o da antorchas a los tokens.') + '</div>' +
+      '<div class="row between" style="margin-top:10px"><label>Clima</label><select id="setWeather">' + Object.keys(WEATHER).map(k => '<option value="' + k + '"' + ((m.weather || 'none') === k ? ' selected' : '') + '>' + WEATHER[k] + '</option>').join('') + '</select></div>' +
+      '<div class="mini" style="margin-top:4px">Lo ven todos encima del mapa, también en el proyector.</div></div>';
   }
   p.innerHTML = html;
   $('#btnImport').onclick = openImport;
@@ -2538,6 +2626,7 @@ function renderMapsPanel(p){
     });
     $('#setDark').oninput = e => { $('#setDarkV').textContent = e.target.value + '%'; };
     $('#setDark').onchange = e => DB.doc('maps/' + m.id).update({ darkness: clamp((parseInt(e.target.value) || 0) / 100, 0, 1) }).catch(() => {});
+    $('#setWeather').onchange = e => DB.doc('maps/' + m.id).update({ weather: e.target.value }).catch(err => toast(err.message, true));
     $('#setLightScale').onchange = e => DB.doc('maps/' + m.id).update({ lightScale: Math.max(0.25, parseFloat(e.target.value) || 1) }).catch(() => {});
   }
 }
@@ -3790,6 +3879,415 @@ function syncAudioVolumes(){
 // cada 30 s, corrige la deriva respecto al resto del grupo
 setInterval(() => Object.values(AUD.els).forEach(a => { if (!a.paused) seekAudio(a); }), 30000);
 
+/* ============================================================
+   INMERSIÓN: efectos, sonido, clima, escena, narración, modo inmersivo
+   ============================================================ */
+const REDUCE_MOTION = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+const FX = { texts: [], skulls: [], flash: {}, lastHit: {}, shake: null, prevHp: null, prevTok: null, lastRollTs: 0, gone: {}, deaths: {},
+  lastRound: null, prevDoors: null, sceneMap: undefined, booted: false };
+function vibrate(p){ try { if (!S.projector && navigator.vibrate) navigator.vibrate(p); } catch(e){} }
+
+/* ---------- sonidos sintetizados (sin archivos) ---------- */
+const SFX = { ctx: null };
+function sfxCtx(){
+  if (S.projector || AUD.muted) return null;
+  try {
+    if (!SFX.ctx){ const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null; SFX.ctx = new AC(); }
+    if (SFX.ctx.state === 'suspended') SFX.ctx.resume().catch(() => {});
+    return SFX.ctx.state === 'running' ? SFX.ctx : null;
+  } catch(e){ return null; }
+}
+document.addEventListener('pointerdown', () => { try { if (SFX.ctx && SFX.ctx.state === 'suspended') SFX.ctx.resume(); else if (!SFX.ctx) sfxCtx(); } catch(e){} }, { capture: true, passive: true });
+function sfxOut(a, vol){ const g = a.createGain(); g.gain.value = clamp(vol * AUD.vol, 0, 1); g.connect(a.destination); return g; }
+function noiseBuf(a, dur){
+  const n = Math.max(1, Math.floor(a.sampleRate * dur)), b = a.createBuffer(1, n, a.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  return b;
+}
+function blip(a, out, t, f0, f1, dur, type, vol){
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = type || 'sine'; o.frequency.setValueAtTime(f0, t); if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol || 0.5, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.02);
+}
+function hiss(a, out, t, dur, freq, q, vol, sweepTo){
+  const s = a.createBufferSource(); s.buffer = noiseBuf(a, dur);
+  const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.setValueAtTime(freq, t); if (sweepTo) f.frequency.exponentialRampToValueAtTime(sweepTo, t + dur); f.Q.value = q || 1;
+  const g = a.createGain(); g.gain.setValueAtTime(vol || 0.5, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f); f.connect(g); g.connect(out); s.start(t); s.stop(t + dur);
+}
+function sfx(kind){
+  const a = sfxCtx(); if (!a) return;
+  const t = a.currentTime + 0.01, out = sfxOut(a, 0.55);
+  if (kind === 'dice'){ for (let i = 0; i < 6; i++) hiss(a, out, t + i * 0.055 + Math.random() * 0.03, 0.05, 2400 + Math.random() * 1800, 6, 0.6); blip(a, out, t + 0.36, 900, 600, 0.06, 'triangle', 0.25); }
+  else if (kind === 'hit'){ blip(a, out, t, 160, 55, 0.22, 'sine', 0.9); hiss(a, out, t, 0.14, 1800, 0.8, 0.5, 400); }
+  else if (kind === 'crit'){ blip(a, out, t, 220, 45, 0.4, 'sine', 1); hiss(a, out, t, 0.3, 3200, 0.7, 0.7, 300); blip(a, out, t + 0.05, 1320, 1320, 0.5, 'triangle', 0.18); }
+  else if (kind === 'miss'){ hiss(a, out, t, 0.32, 500, 1.2, 0.45, 2600); }
+  else if (kind === 'death'){ blip(a, out, t, 110, 70, 1.4, 'sine', 0.8); blip(a, out, t, 165, 100, 1.2, 'sine', 0.35); }
+  else if (kind === 'door'){ blip(a, out, t, 140, 260, 0.45, 'sawtooth', 0.12); hiss(a, out, t + 0.4, 0.12, 300, 1, 0.5); }
+  else if (kind === 'round'){ [523, 659, 784].forEach((f, i) => blip(a, out, t + i * 0.11, f, f, 0.9 - i * 0.15, 'triangle', 0.28)); }
+  else if (kind === 'turn'){ blip(a, out, t, 880, 880, 0.35, 'sine', 0.3); blip(a, out, t + 0.14, 1175, 1175, 0.5, 'sine', 0.3); }
+  else if (kind === 'page'){ hiss(a, out, t, 0.35, 3000, 0.6, 0.35, 900); hiss(a, out, t + 0.18, 0.25, 2200, 0.6, 0.25, 700); }
+  else if (kind === 'heal'){ [660, 880, 1320].forEach((f, i) => blip(a, out, t + i * 0.07, f, f * 1.01, 0.5, 'sine', 0.18)); }
+  else if (kind === 'scene'){ blip(a, out, t, 98, 98, 2.2, 'sine', 0.35); blip(a, out, t, 147, 147, 2.2, 'sine', 0.2); }
+}
+
+/* ---------- textos flotantes, destello, temblor y calaveras (en el mapa) ---------- */
+function fxText(x, y, mapId, text, color, big){
+  FX.texts.push({ x, y, mapId, text, color, big: !!big, t: performance.now() }); FX.nTexts = (FX.nTexts || 0) + 1; (FX.allTexts = FX.allTexts || []).push(text);
+  if (FX.texts.length > 30) FX.texts.shift();
+  needsDraw();
+}
+function fxShake(amp){ if (REDUCE_MOTION) return; FX.shake = { t: performance.now(), amp }; needsDraw(); }
+function shakeOffset(){
+  if (!FX.shake) return [0, 0];
+  const k = (performance.now() - FX.shake.t) / 380;
+  if (k >= 1){ FX.shake = null; return [0, 0]; }
+  const a = FX.shake.amp * (1 - k);
+  needsDraw();
+  return [Math.sin(k * 60) * a, Math.cos(k * 47) * a * 0.6];
+}
+function drawFx(m, g){
+  const now = performance.now();
+  FX.skulls = FX.skulls.filter(s => now - s.t < 2600);
+  FX.skulls.forEach(s => {
+    if (s.mapId !== m.id) return;
+    const k = (now - s.t) / 2600;
+    ctx.save();
+    ctx.globalAlpha = k < 0.15 ? k / 0.15 : 1 - Math.max(0, (k - 0.55) / 0.45);
+    const r = g * 0.46;
+    ctx.fillStyle = 'rgba(10,6,4,.75)'; ctx.beginPath(); ctx.arc(s.x, s.y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.font = (r * 1.25) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('💀', s.x, s.y - (REDUCE_MOTION ? 0 : k * g * 0.25));
+    ctx.restore();
+  });
+  FX.texts = FX.texts.filter(f => now - f.t < 1700);
+  FX.texts.forEach(f => {
+    if (f.mapId !== m.id) return;
+    const k = (now - f.t) / 1700;
+    const rise = REDUCE_MOTION ? 0 : k * g * 0.9;
+    const size = Math.max(14 / S.cam.s, g * (f.big ? 0.5 : 0.36)) * (f.big && k < 0.12 ? 1 + (0.12 - k) * 4 : 1);
+    ctx.save();
+    ctx.globalAlpha = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1;
+    ctx.font = '800 ' + size + 'px Cinzel, serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = size * 0.18; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.lineJoin = 'round';
+    ctx.strokeText(f.text, f.x, f.y - g * 0.55 - rise);
+    ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, f.y - g * 0.55 - rise);
+    ctx.restore();
+  });
+  if (FX.texts.length || FX.skulls.length) needsDraw();
+}
+function tokenAt(name, mapId){ return Object.values(S.tokens).find(t => t.name === name && t.mapId === mapId && (t.gameId || null) === (S.gameId || null)); }
+function canSeeTok(t){ return t && (S.isDM && !S.viewAsPlayer || !t.hidden && tokenVisibleToPlayers(t)); }
+
+// Cambios de PV: números flotantes, destello, temblor, vibración y sonido
+function fxOnTokens(prev){
+  const m = activeMap();
+  if (!FX.prevTok){ FX.prevTok = {}; Object.values(S.tokens).forEach(t => { FX.prevTok[t.id] = { hp: t.hp, x: t.x, y: t.y, name: t.name, mapId: t.mapId, type: t.type }; }); return; }
+  const mine = myPC();
+  Object.values(S.tokens).forEach(t => {
+    const p = FX.prevTok[t.id];
+    if (p && m && t.mapId === m.id && typeof p.hp === 'number' && typeof t.hp === 'number' && t.hp !== p.hp && canSeeTok(t)){
+      const d = t.hp - p.hp;
+      fxText(t.x, t.y, m.id, (d > 0 ? '+' : '−') + Math.abs(d), d > 0 ? '#7fe08a' : '#ff5a43', Math.abs(d) >= 10);
+      if (d < 0){ FX.flash[t.id] = performance.now(); sfx(t.hp <= 0 ? 'death' : 'hit'); }
+      else sfx('heal');
+      if (mine && t.id === mine.id && d < 0){ vibrate(t.hp <= 0 ? [300, 100, 300] : 180); fxShake(10); }
+      if (t.hp <= 0 && d < 0 && t.type === 'pc') setTimeout(() => fxText(t.x, t.y, m.id, '¡Inconsciente!', '#ff8a6a', true), 350);
+    }
+  });
+  // Tokens que desaparecen: si murieron (aviso de muerte en el registro), calavera
+  Object.keys(FX.prevTok).forEach(id => {
+    if (S.tokens[id]) return;
+    const p = FX.prevTok[id];
+    FX.gone[p.name] = { x: p.x, y: p.y, mapId: p.mapId, t: Date.now() };
+    const lh = FX.lastHit[p.name];
+    if (lh && Date.now() - lh.t < 8000 && m && p.mapId === m.id){ fxText(p.x, p.y, m.id, '−' + lh.dmg, '#ff5a43', lh.dmg >= 10); delete FX.lastHit[p.name]; }
+    if (FX.deaths[p.name] && Date.now() - FX.deaths[p.name] < 8000) fxSkull(p.name);
+  });
+  FX.prevTok = {};
+  Object.values(S.tokens).forEach(t => { FX.prevTok[t.id] = { hp: t.hp, x: t.x, y: t.y, name: t.name, mapId: t.mapId, type: t.type }; });
+}
+function fxSkull(name){
+  const gpos = FX.gone[name]; if (!gpos || Date.now() - gpos.t > 8000) return;
+  delete FX.gone[name]; delete FX.deaths[name];
+  FX.skulls.push({ x: gpos.x, y: gpos.y, mapId: gpos.mapId, t: performance.now() }); FX.nSkulls = (FX.nSkulls || 0) + 1;
+  sfx('death'); needsDraw();
+}
+// Registro de tiradas: dados, fallos, críticos y muertes
+function fxOnRolls(all){
+  // tiradas ya vistas, por id (varias pueden compartir la misma hora)
+  if (!FX.seenRolls){ FX.seenRolls = new Set(all.map(r => r.id)); FX.lastRollTs = 1; return; }
+  const fresh = all.filter(r => !FX.seenRolls.has(r.id) && Date.now() - (r.ts || 0) < 15000 && (r.gameId || null) === (S.gameId || null));
+  all.forEach(r => FX.seenRolls.add(r.id));
+  if (FX.seenRolls.size > 2000) FX.seenRolls = new Set(all.map(r => r.id));
+  const m = activeMap();
+  fresh.sort((a, b) => a.ts - b.ts).forEach(r => {
+    const f = String(r.formula || ''), det = String(r.detail || '');
+    if (/^💀 (.+) ha muerto/.test(f)){
+      const name = f.match(/^💀 (.+) ha muerto/)[1];
+      FX.deaths[name] = Date.now(); fxSkull(name); return;
+    }
+    let target = null;
+    let mt = f.match(/ contra (.+)$/); if (mt) target = mt[1];
+    mt = f.match(/ responde a (.+?) \(/); if (mt) target = mt[1];
+    if (target && m){
+      // golpe que mata: el token ya no está (o se va a ir); el daño se lee de la tirada
+      const dm = det.match(/(\d+) de daño/);
+      if (dm){
+        FX.lastHit[target] = { dmg: +dm[1], t: Date.now() };
+        const gp = FX.gone[target];
+        if (gp && Date.now() - gp.t < 8000 && gp.mapId === m.id) fxText(gp.x, gp.y, m.id, '−' + dm[1], '#ff5a43', +dm[1] >= 10);
+      }
+      const t = tokenAt(target, m.id);
+      if (t && canSeeTok(t)){
+        if (/CRÍTICO/.test(det)){ fxText(t.x, t.y - gridOf(m) * 0.35, m.id, '¡CRÍTICO!', '#ffd25a', true); fxShake(14); sfx('crit'); }
+        else if (/pifia/.test(det)){ fxText(t.x, t.y, m.id, '¡Pifia!', '#c8b9a0', false); sfx('miss'); }
+        else if (/fallo/.test(det)){ fxText(t.x, t.y, m.id, 'Fallo', '#d8cbb3', false); sfx('miss'); }
+      }
+      return;
+    }
+    if (r.uid !== 'npc' && /\d*d\d+/.test(f)) sfx('dice');
+  });
+}
+// Ronda nueva: cartel, campana y, si te toca, vibración
+function roundKey(){ const rd = (gameDoc() || {}).round || {}; return rd.active ? rd.n || 1 : 0; }
+function fxEnterGame(){ FX.roundGame = S.gameId; FX.lastRound = gameDoc() ? roundKey() : null; FX.sceneMap = S.activeMapId; }
+function fxOnGame(){
+  const g = gameDoc(); if (!g) return;
+  const rd = g.round || {};
+  const key = roundKey();
+  if (FX.roundGame !== S.gameId || FX.lastRound === null){ FX.roundGame = S.gameId; FX.lastRound = key; return; }
+  if (key !== FX.lastRound){
+    FX.lastRound = key;
+    if (rd.active){
+      const pc = myPC(), m = activeMap();
+      const mineTurn = !S.isDM && pc && m && pc.mapId === m.id && !(pc.hpMax > 0 && pc.hp <= 0);
+      banner('Ronda ' + (rd.n || 1), mineTurn ? 'Te toca actuar' : (S.isDM && !S.projector ? 'Los jugadores eligen su acción' : ''));
+      sfx(mineTurn ? 'turn' : 'round');
+      if (mineTurn) vibrate([90, 60, 90]);
+    }
+  }
+}
+function banner(title, sub){
+  const b = $('#roundBanner'); if (!b) return;
+  FX.nBanners = (FX.nBanners || 0) + 1;
+  b.innerHTML = '<div class="rb-t">' + esc(title) + '</div>' + (sub ? '<div class="rb-s">' + esc(sub) + '</div>' : '');
+  b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
+  clearTimeout(b._t); b._t = setTimeout(() => b.classList.remove('show'), 2600);
+}
+// Puertas que se abren o cierran: crujido
+function fxOnMaps(){
+  const m = activeMap(); if (!m) { FX.prevDoors = null; return; }
+  const key = m.id + '|' + JSON.stringify(m.doorStates || {});
+  if (FX.prevDoors && FX.prevDoors.split('|')[0] === m.id && FX.prevDoors !== key) sfx('door');
+  FX.prevDoors = key;
+  setWeather(m.weather || 'none');
+}
+
+/* ---------- cambio de escena ---------- */
+function fxScene(newMap){
+  if (FX.sceneMap === undefined){ FX.sceneMap = newMap; return; }
+  if (newMap === FX.sceneMap) return;
+  FX.sceneMap = newMap;
+  if (!newMap) return;
+  const el = $('#sceneCard'); if (!el) return;
+  const name = (S.maps[newMap] || {}).name || '';
+  el.querySelector('.sc-t').textContent = name;
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+  sfx('scene');
+  clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), REDUCE_MOTION ? 1800 : 3200);
+}
+function fxSceneName(){
+  const el = $('#sceneCard');
+  if (el && el.classList.contains('show') && FX.sceneMap && S.maps[FX.sceneMap]) el.querySelector('.sc-t').textContent = S.maps[FX.sceneMap].name || '';
+}
+
+/* ---------- narración: texto para leer en voz alta ---------- */
+function showNarration(d, fromDM){
+  if (!d || typeof d.text !== 'string') return;
+  const el = $('#narration'); if (!el) return;
+  el.querySelector('.nr-title').textContent = String(d.title || '').slice(0, 80);
+  el.querySelector('.nr-title').style.display = d.title ? '' : 'none';
+  el.querySelector('.nr-text').textContent = String(d.text).slice(0, 2000);
+  el.dataset.nid = String(d.id || '');
+  $('#nrRetire').style.display = S.isDM && !S.projector ? '' : 'none';
+  el.classList.add('open');
+  sfx('page');
+  if (!fromDM) vibrate(60);
+}
+function hideNarration(id){
+  const el = $('#narration');
+  if (el && (!id || el.dataset.nid === String(id))) el.classList.remove('open');
+}
+function narrate(title, text){
+  const d = { id: uuid(), title: title.trim().slice(0, 80), text: text.trim().slice(0, 2000) };
+  if (!d.text) return;
+  showNarration(d, true);
+  if (GCH){ try { GCH.send({ type: 'broadcast', event: 'narrate', payload: d }); } catch(e){} }
+  try { if (projBC) projBC.postMessage({ type: 'narrate', d }); } catch(e){}
+}
+$('#btnNarrate').onclick = () => { $('#narrateModal').classList.add('open'); setTimeout(() => $('#nrInput').focus(), 50); };
+$('#nrCancel').onclick = () => $('#narrateModal').classList.remove('open');
+$('#nrSend').onclick = () => {
+  const text = $('#nrInput').value;
+  if (!text.trim()){ toast('Escribe el texto que leerás a la mesa', true); return; }
+  narrate($('#nrTitle').value, text);
+  $('#narrateModal').classList.remove('open');
+  $('#nrInput').value = ''; $('#nrTitle').value = '';
+};
+$('#nrClose').onclick = () => hideNarration();
+$('#nrRetire').onclick = () => {
+  const id = $('#narration').dataset.nid; hideNarration();
+  if (GCH){ try { GCH.send({ type: 'broadcast', event: 'narrate-close', payload: { id } }); } catch(e){} }
+  try { if (projBC) projBC.postMessage({ type: 'narrate-close', id }); } catch(e){}
+};
+
+/* ---------- clima (capa de partículas sobre el mapa) ---------- */
+const fxCv = $('#fxLayer'), fxCtx = fxCv ? fxCv.getContext('2d') : null;
+const WX = { kind: 'none', parts: [], raf: 0, last: 0 };
+const WEATHER = { none: 'Despejado', rain: '🌧 Lluvia', storm: '⛈ Tormenta', snow: '❄ Nieve', ash: '🔥 Ceniza y brasas', fog: '🌫 Niebla' };
+function setWeather(kind){
+  if (!WEATHER[kind]) kind = 'none';
+  if (kind === WX.kind) return;
+  WX.kind = kind; WX.parts = [];
+  if (!fxCv) return;
+  if (kind === 'none'){ cancelAnimationFrame(WX.raf); WX.raf = 0; fxCtx.clearRect(0, 0, fxCv.width, fxCv.height); fxCv.style.display = 'none'; return; }
+  fxCv.style.display = 'block';
+  if (!WX.raf) WX.raf = requestAnimationFrame(wxTick);
+}
+function wxSeed(W, H){
+  const area = W * H, k = WX.kind;
+  const n = k === 'rain' ? area / 2600 : k === 'storm' ? area / 1500 : k === 'snow' ? area / 5200 : k === 'ash' ? area / 9000 : k === 'fog' ? 9 : 0;
+  WX.parts = [];
+  for (let i = 0; i < Math.min(900, Math.round(n)); i++) WX.parts.push(wxNew(W, H, true));
+}
+function wxNew(W, H, any){
+  const k = WX.kind, r = Math.random;
+  if (k === 'rain' || k === 'storm') return { x: r() * (W + 200) - 100, y: any ? r() * H : -20, v: 900 + r() * 500, l: 12 + r() * 16, a: 0.25 + r() * 0.35 };
+  if (k === 'snow') return { x: r() * W, y: any ? r() * H : -8, v: 30 + r() * 50, s: 1 + r() * 2.6, ph: r() * 6.28, a: 0.5 + r() * 0.5 };
+  if (k === 'ash') return { x: r() * W, y: any ? r() * H : H + 8, v: 18 + r() * 40, s: 0.8 + r() * 2.2, ph: r() * 6.28, hot: r() < 0.45, a: 0.4 + r() * 0.6 };
+  return { x: r() * W, y: r() * H, v: 6 + r() * 14, s: 160 + r() * 260, a: 0.05 + r() * 0.07 };
+}
+function wxTick(now){
+  WX.raf = 0;
+  if (WX.kind === 'none' || !fxCv) return;
+  if (document.hidden){ WX.raf = requestAnimationFrame(wxTick); return; }
+  const r = fxCv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+  const W = Math.round(r.width), H = Math.round(r.height);
+  if (!W || !H){ WX.raf = requestAnimationFrame(wxTick); return; }
+  if (fxCv.width !== Math.round(W * dpr) || fxCv.height !== Math.round(H * dpr)){ fxCv.width = Math.round(W * dpr); fxCv.height = Math.round(H * dpr); wxSeed(W, H); }
+  if (!WX.parts.length) wxSeed(W, H);
+  const dt = Math.min(0.05, WX.last ? (now - WX.last) / 1000 : 0.016) * (REDUCE_MOTION ? 0.25 : 1); WX.last = now;
+  const c = fxCtx; c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, H);
+  const k = WX.kind;
+  if (k === 'rain' || k === 'storm'){
+    c.strokeStyle = 'rgba(190,210,230,1)'; c.lineWidth = 1.1; c.lineCap = 'round';
+    const wind = k === 'storm' ? 0.32 : 0.16;
+    WX.parts.forEach(p => {
+      p.y += p.v * dt; p.x += p.v * wind * dt;
+      if (p.y > H + 20 || p.x > W + 120) Object.assign(p, wxNew(W, H, false));
+      c.globalAlpha = p.a; c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(p.x - p.l * wind, p.y - p.l); c.stroke();
+    });
+    if (k === 'storm' && !REDUCE_MOTION){
+      WX.flash = (WX.flash || 0) - dt;
+      if (WX.flash < -6 && Math.random() < dt * 0.25){ WX.flash = 0.18; }
+      if (WX.flash > 0){ c.globalAlpha = WX.flash * 2.2; c.fillStyle = '#dfe8ff'; c.fillRect(0, 0, W, H); }
+    }
+  } else if (k === 'snow'){
+    c.fillStyle = '#f4f7ff';
+    WX.parts.forEach(p => {
+      p.ph += dt; p.y += p.v * dt; p.x += Math.sin(p.ph) * 14 * dt;
+      if (p.y > H + 8) Object.assign(p, wxNew(W, H, false));
+      c.globalAlpha = p.a; c.beginPath(); c.arc(p.x, p.y, p.s, 0, 6.283); c.fill();
+    });
+  } else if (k === 'ash'){
+    WX.parts.forEach(p => {
+      p.ph += dt * 1.6; p.y -= p.v * dt; p.x += Math.sin(p.ph) * 18 * dt;
+      if (p.y < -8) Object.assign(p, wxNew(W, H, false));
+      c.globalAlpha = p.a * (p.hot ? 0.6 + 0.4 * Math.sin(p.ph * 3) : 1);
+      c.fillStyle = p.hot ? '#ff9a3c' : '#9a9088';
+      c.beginPath(); c.arc(p.x, p.y, p.s, 0, 6.283); c.fill();
+    });
+  } else if (k === 'fog'){
+    WX.parts.forEach(p => {
+      p.x += p.v * dt; if (p.x - p.s > W) { p.x = -p.s; p.y = Math.random() * H; }
+      const gr = c.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.s);
+      gr.addColorStop(0, 'rgba(200,205,215,' + p.a + ')'); gr.addColorStop(1, 'rgba(200,205,215,0)');
+      c.globalAlpha = 1; c.fillStyle = gr; c.fillRect(p.x - p.s, p.y - p.s, p.s * 2, p.s * 2);
+    });
+  }
+  c.globalAlpha = 1;
+  WX.raf = requestAnimationFrame(wxTick);
+}
+
+/* ---------- antorchas que parpadean ---------- */
+function flickerAt(seed, t){ return 0.5 * Math.sin(t * 7.1 + seed) + 0.3 * Math.sin(t * 13.3 + seed * 2.1) + 0.2 * Math.sin(t * 23.7 + seed * 3.7); }
+function drawFlicker(m){
+  if (!S.lights.length || REDUCE_MOTION || FX.paused) return;
+  const t = performance.now() / 1000;
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  S.lights.slice(0, 48).forEach((l, i) => {
+    const f = flickerAt(l.x * 0.013 + l.y * 0.007 + i, t);
+    const a = 0.07 + 0.06 * f;
+    if (a <= 0.005) return;
+    if (!l.path){ l.path = new Path2D(); const p = l.poly; if (p.length > 5){ l.path.moveTo(p[0], p[1]); for (let k = 2; k < p.length; k += 2) l.path.lineTo(p[k], p[k + 1]); l.path.closePath(); } }
+    const rad = l.dim * (0.92 + 0.05 * f);
+    const gr = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, rad), rgb = hexRgb(l.color);
+    gr.addColorStop(0, 'rgba(' + rgb + ',' + a.toFixed(3) + ')'); gr.addColorStop(0.55, 'rgba(' + rgb + ',' + (a * 0.45).toFixed(3) + ')'); gr.addColorStop(1, 'rgba(' + rgb + ',0)');
+    ctx.save(); ctx.clip(l.path); ctx.fillStyle = gr; ctx.fillRect(l.x - rad, l.y - rad, rad * 2, rad * 2); ctx.restore();
+  });
+  ctx.restore();
+}
+// Reloj de animación: solo cuando hay algo que se mueve (luces en la oscuridad o mi turno)
+setInterval(() => {
+  if (document.hidden || REDUCE_MOTION || !S.gameId || FX.paused) return;
+  const m = activeMap();
+  if (m && S.lights.length && mapDarkness(m) > 0.01) needsDraw();
+  else if (myTurnNow()) needsDraw();
+}, 50);
+function myTurnNow(){
+  if (S.isDM || S.projector) return false;
+  const rd = (gameDoc() || {}).round || {}, pc = myPC(), m = activeMap();
+  return !!(rd.active && pc && m && pc.mapId === m.id && !(rd.done || {})[pc.id] && !(pc.hpMax > 0 && pc.hp <= 0));
+}
+
+/* ---------- modo inmersivo (jugadores en ordenador o tableta) ---------- */
+function setImmersive(on){
+  document.body.classList.toggle('immersive', !!on);
+  lsSet('vtt_immersive', on ? 1 : null);
+  setTimeout(() => { resizeCanvas(); fitView(); }, 60);
+  updateImmBar();
+}
+function updateImmBar(){
+  const bar = $('#immBar'); if (!bar) return;
+  const can = !!S.gameId && !S.isDM && !S.projector && !S.phone;
+  $('#btnImmersive').style.display = can ? '' : 'none';
+  if (!can && document.body.classList.contains('immersive')) document.body.classList.remove('immersive');
+  if (!document.body.classList.contains('immersive')) return;
+  const pc = myPC(), rd = (gameDoc() || {}).round || {};
+  const pct = pc && pc.hpMax > 0 ? clamp((pc.hp || 0) / pc.hpMax * 100, 0, 100) : 0;
+  const done = pc && (rd.done || {})[pc.id], pend = pc && (rd.pending || {})[pc.id];
+  const ko = pc && pc.hpMax > 0 && (pc.hp || 0) <= 0;
+  const away = pc && activeMap() && pc.mapId !== activeMap().id;
+  let state = !pc ? 'Elige tu personaje para jugar' : away ? '🧭 Tu personaje está en otro mapa' : ko ? '💀 Inconsciente' : !rd.active ? 'Esperando a que el DM abra la ronda' : done ? '✓ Ya has actuado en la ronda ' + (rd.n || 1) : pend ? '🎲 Has sacado ' + pend + ': toca una casilla iluminada' : '⚔ Ronda ' + (rd.n || 1) + ': te toca actuar';
+  const act = pc && !away && rd.active && !done && !ko;
+  bar.innerHTML =
+    (pc ? '<div class="ib-pc"><div class="ib-name">' + esc(pc.name) + '</div><div class="vial sm" title="' + (pc.hp || 0) + '/' + (pc.hpMax || 0) + ' PV"><i style="width:' + pct + '%"></i><span>' + (pc.hp || 0) + '/' + (pc.hpMax || 0) + '</span></div></div>' : '') +
+    '<div class="ib-state' + (act ? ' now' : '') + '">' + esc(state) + '</div>' +
+    (act ? '<button class="ib-act" data-act="actMove"' + (pend ? ' disabled' : '') + '>🎲 Mover</button><button class="ib-act" data-act="actAtk"' + (pend ? ' disabled' : '') + '>⚔ Atacar</button><button class="ib-act" data-act="actPass">⏭ Pasar</button>' : '') +
+    '<button class="ib-exit" title="Salir del modo inmersivo (Esc)">✕</button>';
+  bar.querySelectorAll('.ib-act').forEach(b => b.onclick = () => {
+    if (b.dataset.act === 'actAtk'){ setImmersive(false); selectTab('pj'); setTimeout(() => { const x = $('#actAtk'); if (x) x.click(); }, 60); return; }
+    if (S.tab !== 'pj') selectTab('pj');
+    const x = $('#' + b.dataset.act); if (x) x.click();
+  });
+  bar.querySelector('.ib-exit').onclick = () => setImmersive(false);
+}
+$('#btnImmersive').onclick = () => setImmersive(!document.body.classList.contains('immersive'));
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('immersive') && !/input|textarea|select/i.test((e.target && e.target.tagName) || '')) setImmersive(false); });
+if (lsGet('vtt_immersive')) setTimeout(() => { if (!S.isDM && !S.phone && S.gameId) setImmersive(true); }, 1500);
+
 /* ============ ganchos de pruebas (solo en localhost) ============ */
 if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
   const px = c => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 128) n++; return n; };
@@ -3803,6 +4301,8 @@ if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
     __expPixels: () => { const m = activeMap(); if (!m) return -1; if (S.fogDirty) recomputeFog(); return px(getExplored(m)); },
     __sbClient: () => SB,
     __recompute: () => recomputeFog(),
+    __pauseFx: on => { FX.paused = !!on; },
+    __fx: () => ({ texts: FX.texts.map(f => f.text), skulls: FX.skulls.length, nSkulls: FX.nSkulls || 0, allTexts: FX.allTexts || [], nBanners: FX.nBanners || 0, lastRound: FX.lastRound, round: (gameDoc() || {}).round || null, weather: WX.kind, deaths: FX.deaths, gone: FX.gone, last: FX.lastRollTs, rolls: (S.rolls || []).slice(0, 4).map(r => [r.who, r.formula, r.ts]) }),
     __reachCells: () => (S.reach || []).map(c => ({ x: c.x, y: c.y })),
     __resetLightCache: () => { lightCache = { key: null, list: [] }; },
     __seenPixels: () => { if (S.fogDirty) recomputeFog(); const m = activeMap(); const ex = getExplored(m); const c = document.createElement('canvas'); c.width = ex.width; c.height = ex.height; c.getContext('2d').drawImage(seenCanvas, 0, 0, c.width, c.height); return px(c); }

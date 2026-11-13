@@ -304,7 +304,8 @@ function onMessage(cl, raw, isBinary){
   if (ref) wsSend(cl, joinRef, ref, topic, 'phx_reply', { status: 'ok', response: {} });
 }
 // Cambios en la BD -> clientes suscritos que puedan VER la fila (RLS)
-const lastSeen = new Map();  // `${uid}|${table}|${id}` -> visible
+const lastSeen = new Map();  // `${cliente}|${table}|${id}` -> visible
+let clSeq = 0;
 async function onDbChange(n){
   const { t, op, id } = n;
   const cols = [{ name: 'id', type: 'text' }, { name: 'data', type: 'jsonb' }, { name: 'updated_at', type: 'timestamptz' }];
@@ -316,7 +317,7 @@ async function onDbChange(n){
       if (op !== 'DELETE'){
         try { row = (await asUser(cl.uid, c => c.query('select id, data, updated_at from public.' + ident(t) + ' where id=$1', [id]))).rows[0] || null; } catch(e){ row = null; }
       }
-      const key = cl.uid + '|' + t + '|' + id;
+      const key = (cl.n || (cl.n = ++clSeq)) + '|' + t + '|' + id;
       let type = op, record = row, old = { id };
       if (op !== 'DELETE' && !row){ if (lastSeen.get(key)) { type = 'DELETE'; } else continue; }   // dejó de verse
       if (type === 'DELETE' && op === 'DELETE' && lastSeen.get(key) === false) continue;
