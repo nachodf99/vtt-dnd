@@ -251,6 +251,7 @@ async function getConfig(){
 (async function boot(){
   try {
     const cfg = await getConfig();
+    S.cfg = cfg;
     SB = createClient(cfg.url, cfg.anon, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
     authUrlErrors();
     let session = (await SB.auth.getSession()).data.session;
@@ -384,11 +385,66 @@ function niceAuthError(e){
   if (/manual linking/i.test(m)) return null;
   if (/rate limit|too many/i.test(m)) return 'Demasiados intentos. Espera un poco.';
   if (/email not confirmed/i.test(m)) return 'Confirma primero tu correo (revisa la bandeja de entrada y el spam).';
-  if (/password/i.test(m) && /(short|weak|characters|least)/i.test(m)) return 'La contraseña es demasiado débil: usa al menos 8 caracteres con letras y números.';
+  if (/password/i.test(m) && /(short|weak|characters|least|pwned|leaked|known)/i.test(m)) return 'El servidor considera la contraseña demasiado débil o filtrada en internet: elige otra más larga.';
+  if (/redirect/i.test(m)) return 'La dirección de la app no está autorizada en el servidor de cuentas (Redirect URLs).';
   return m;
 }
-function pwOk(pw){ return pw.length >= 8 && /[A-Za-z]/.test(pw) && /\d/.test(pw); }
+const PW_RULES = [
+  ['len', 'Al menos 8 caracteres (mejor 12 o más)', pw => pw.length >= 8, true],
+  ['low', 'Una letra minúscula', pw => /[a-zñ]/.test(pw), true],
+  ['up', 'Una letra mayúscula', pw => /[A-ZÑ]/.test(pw), true],
+  ['num', 'Un número', pw => /\d/.test(pw), true],
+  ['sym', 'Un símbolo (!?#@…) — recomendado', pw => /[^A-Za-z0-9ñÑ]/.test(pw), false]
+];
+// Contraseñas conocidas por ser de las más usadas (solas o con números/símbolos al final)
+const PW_COMMON = /^(password|passw0rd|contrase[nñ]a|qwerty|qwertyuiop|asdfgh|123456|1234567|12345678|123456789|abc123|abcd1234|111111|000000|dragon|letmein|admin|iloveyou|teamo|monkey|football|futbol|princesa|welcome|bienvenido)[\d!.?#@_-]*$/i;
+function pwOk(pw){ return PW_RULES.every(r => !r[3] || r[2](pw)) && !PW_COMMON.test(pw); }
+function pwScore(pw){
+  if (!pw) return 0;
+  let sc = PW_RULES.filter(r => r[2](pw)).length + (pw.length >= 12 ? 1 : 0) + (pw.length >= 16 ? 1 : 0);
+  if (PW_COMMON.test(pw) || /(.)\1{2,}/.test(pw)) sc -= 2;
+  return Math.max(0, Math.min(6, sc));
+}
+function pwFieldsHtml(label){
+  return '<div class="field"><label>' + label + '</label><div class="pw-wrap"><input id="authPw" type="password" autocomplete="new-password" maxlength="72" placeholder="Crea una contraseña segura"><button type="button" class="pw-eye" data-for="authPw" title="Mostrar u ocultar">👁</button></div></div>' +
+    '<div class="pw-meter"><i id="pwBar"></i></div><div class="mini" id="pwLevel" style="margin:2px 0 6px">Escribe tu contraseña</div>' +
+    '<ul class="pw-rules" id="pwRules">' + PW_RULES.map(r => '<li data-r="' + r[0] + '"' + (r[3] ? '' : ' class="opt"') + '>' + r[1] + '</li>').join('') + '</ul>' +
+    '<div class="field"><label>Repite la contraseña</label><div class="pw-wrap"><input id="authPw2" type="password" autocomplete="new-password" maxlength="72" placeholder="Escríbela otra vez"><button type="button" class="pw-eye" data-for="authPw2" title="Mostrar u ocultar">👁</button></div><div class="mini" id="pwMatch" style="margin-top:3px"></div></div>' +
+    '<div class="help-tip" style="margin-top:6px">💡 Consejo: usa una frase de 3-4 palabras que solo tú entiendas, con algún número y símbolo (ej. <i>Dragon-azul-come-7-tartas!</i>). No la reutilices de otras webs.</div>';
+}
+function bindPwFields(){
+  const a = $('#authPw'), b = $('#authPw2'); if (!a || !b) return;
+  const lv = ['Muy débil', 'Muy débil', 'Débil', 'Aceptable', 'Buena', 'Fuerte', 'Muy fuerte'];
+  const col = ['#c0392b', '#c0392b', '#e67e22', '#d4ac0d', '#7dbb53', '#3fa34d', '#2e8b57'];
+  const upd = () => {
+    const pw = a.value, sc = pwScore(pw);
+    PW_RULES.forEach(r => { const li = $('#pwRules li[data-r="' + r[0] + '"]'); if (li) li.classList.toggle('ok', r[2](pw)); });
+    $('#pwBar').style.width = (sc / 6 * 100) + '%'; $('#pwBar').style.background = col[sc];
+    $('#pwLevel').textContent = pw ? 'Seguridad: ' + lv[sc] + (PW_COMMON.test(pw) ? ' · es una contraseña muy común' : '') : 'Escribe tu contraseña';
+    const m = $('#pwMatch');
+    if (!b.value) { m.textContent = ''; }
+    else if (b.value === pw){ m.textContent = '✓ Las contraseñas coinciden'; m.style.color = '#7dbb53'; }
+    else { m.textContent = '✗ No coinciden'; m.style.color = '#e06c6c'; }
+    const go = $('#authGo'); if (go) go.disabled = !(pwOk(pw) && b.value === pw);
+  };
+  a.oninput = upd; b.oninput = upd; upd();
+  $$('#authBody .pw-eye').forEach(btn => btn.onclick = () => { const i = $('#' + btn.dataset.for); i.type = i.type === 'password' ? 'text' : 'password'; btn.textContent = i.type === 'password' ? '👁' : '🙈'; });
+}
+// ¿Tiene el servidor activado el acceso con Google? (endpoint público de Supabase Auth)
+async function authSettings(){
+  if (S.authSettings) return S.authSettings;
+  try {
+    const r = await fetch(S.cfg.url + '/auth/v1/settings', { headers: { apikey: S.cfg.anon } });
+    S.authSettings = r.ok ? await r.json() : {};
+  } catch(e){ S.authSettings = {}; }
+  return S.authSettings;
+}
 async function googleAuth(link){
+  const st = await authSettings();
+  if (st && st.external && st.external.google === false){
+    authMsg('El acceso con Google todavía no está activado en el servidor. De momento usa tu correo y contraseña.', true);
+    return;
+  }
   authMsg('Abriendo Google…');
   if (link && isGuest()){
     const r = await SB.auth.linkIdentity({ provider: 'google', options: { redirectTo: redirectUrl() } });
@@ -409,8 +465,9 @@ function openAuth(mode){
       '<button class="gbtn" id="authGoogle">' + GOOGLE_SVG + (mode === 'login' ? 'Entrar con Google' : 'Crear cuenta con Google') + '</button>' +
       '<div class="or">o con tu correo</div>' +
       '<div class="field"><label>Correo electrónico</label><input id="authEmail" type="email" autocomplete="email" maxlength="120" placeholder="tu@correo.com"></div>' +
-      '<div class="field"><label>Contraseña</label><input id="authPw" type="password" autocomplete="' + (mode === 'login' ? 'current-password' : 'new-password') + '" maxlength="72" placeholder="' + (mode === 'login' ? '••••••••' : 'Mínimo 8, con letras y números') + '"></div>' +
-      (mode === 'signup' ? '<div class="field"><label>Repite la contraseña</label><input id="authPw2" type="password" autocomplete="new-password" maxlength="72"></div>' : '') +
+      (mode === 'login'
+        ? '<div class="field"><label>Contraseña</label><div class="pw-wrap"><input id="authPw" type="password" autocomplete="current-password" maxlength="72" placeholder="••••••••"><button type="button" class="pw-eye" data-for="authPw" title="Mostrar u ocultar">👁</button></div></div>'
+        : pwFieldsHtml('Contraseña')) +
       '<button class="primary" id="authGo" style="width:100%">' + (mode === 'login' ? 'Entrar' : 'Crear cuenta') + '</button>' +
       (mode === 'login' ? '<div style="text-align:center; margin-top:10px"><a href="#" id="authForgot" class="mini">¿Has olvidado la contraseña?</a></div>' : '') +
       '<div class="mini" id="authMsg" style="margin-top:10px; min-height:16px"></div>' +
@@ -424,8 +481,7 @@ function openAuth(mode){
   } else if (mode === 'newpw'){
     $('#authTitle').textContent = 'Nueva contraseña';
     html = '<div class="mini" style="margin-bottom:8px">Elige la contraseña para entrar con ' + esc((S.user && S.user.email) || 'tu correo') + '.</div>' +
-      '<div class="field"><label>Nueva contraseña</label><input id="authPw" type="password" autocomplete="new-password" maxlength="72" placeholder="Mínimo 8, con letras y números"></div>' +
-      '<div class="field"><label>Repítela</label><input id="authPw2" type="password" autocomplete="new-password" maxlength="72"></div>' +
+      pwFieldsHtml('Nueva contraseña') +
       '<button class="primary" id="authGo" style="width:100%">Guardar contraseña</button><div class="mini" id="authMsg" style="margin-top:10px"></div>';
   } else if (mode === 'profile'){
     $('#authTitle').textContent = '👤 Tu perfil';
@@ -444,6 +500,9 @@ function openAuth(mode){
   $('#authModal').classList.add('open');
   $$('#authBody .auth-tabs button').forEach(b => b.onclick = () => openAuth(b.dataset.m));
   const gg = $('#authGoogle'); if (gg) gg.onclick = () => googleAuth(mode === 'signup');
+  if (gg) authSettings().then(st => { if (st && st.external && st.external.google === false){ gg.classList.add('off'); gg.title = 'Aún no activado en el servidor'; } });
+  if (mode === 'signup' || mode === 'newpw') bindPwFields();
+  else $$('#authBody .pw-eye').forEach(btn => btn.onclick = () => { const i = $('#' + btn.dataset.for); i.type = i.type === 'password' ? 'text' : 'password'; btn.textContent = i.type === 'password' ? '👁' : '🙈'; });
   const fg = $('#authForgot'); if (fg) fg.onclick = e => { e.preventDefault(); openAuth('forgot'); };
   const go = $('#authGo');
   const enter = e => { if (e.key === 'Enter' && go) go.click(); };
@@ -452,7 +511,7 @@ function openAuth(mode){
     const email = ($('#authEmail') ? $('#authEmail').value : '').trim().toLowerCase();
     const pw = $('#authPw') ? $('#authPw').value : '', pw2 = $('#authPw2') ? $('#authPw2').value : pw;
     if ((mode === 'login' || mode === 'signup' || mode === 'forgot') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ authMsg('Escribe un correo válido', true); return; }
-    if ((mode === 'signup' || mode === 'newpw') && !pwOk(pw)){ authMsg('La contraseña necesita al menos 8 caracteres, con letras y números', true); return; }
+    if ((mode === 'signup' || mode === 'newpw') && !pwOk(pw)){ authMsg('La contraseña no cumple los requisitos marcados en la lista', true); return; }
     if ((mode === 'signup' || mode === 'newpw') && pw !== pw2){ authMsg('Las contraseñas no coinciden', true); return; }
     go.disabled = true; authMsg('Un momento…');
     try {
