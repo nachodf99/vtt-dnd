@@ -305,6 +305,7 @@ function applyRole(){
   $('#btnSync').style.display = (S.isDM && S.gameId && !S.projector && S.projectorOpen) ? '' : 'none';
   $('#btnFog').style.display = S.isDM ? '' : 'none';
   $('#btnWalls').style.display = S.isDM ? '' : 'none';
+  $('#btnSpawn').style.display = (S.isDM && !S.projector) ? '' : 'none';
   $('#tabMapsBtn').style.display = S.isDM ? '' : 'none';
   $('#emptyImportBtn').style.display = S.isDM ? '' : 'none';
   $('#emptyHint').textContent = S.projector ? 'Esperando a que el DM active un mapa…' : S.isDM
@@ -746,8 +747,8 @@ function gamePCs(){ return Object.values(S.tokens).filter(t => t.type === 'pc' &
 function myPC(){ return gamePCs().find(t => t.ownerId === S.uid) || null; }
 function safeUrl(u){ u = String(u || ''); return /^(https:\/\/|blob:|data:image\/)/i.test(u) ? u : ''; }
 function freeSpot(m, near){
-  const g = gridOf(m), occ = new Set(gameTokens(m.id).map(t => Math.round(t.x / g) + ',' + Math.round(t.y / g)));
-  const cx = Math.round(near.x / g), cy = Math.round(near.y / g);
+  const g = gridOf(m), occ = new Set(gameTokens(m.id).map(t => Math.floor(t.x / g) + ',' + Math.floor(t.y / g)));
+  const cx = Math.floor(near.x / g), cy = Math.floor(near.y / g);
   for (let r = 0; r < 30; r++) for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++){
     if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
     const x = cx + dx, y = cy + dy;
@@ -757,12 +758,30 @@ function freeSpot(m, near){
   }
   return { x: near.x, y: near.y };
 }
-async function movePCsTo(ids, mapId){
+function setSpawnMode(on){
+  S.pickSpawn = !!on && !!activeMap();
+  $('#btnSpawn').classList.toggle('on', S.pickSpawn);
+  $('#spawnHint').style.display = S.pickSpawn ? 'block' : 'none';
+  if (on && !activeMap()) toast('Activa primero un mapa', true);
+}
+$('#btnSpawn').onclick = () => setSpawnMode(!S.pickSpawn);
+$('#spawnCancel').onclick = e => { e.preventDefault(); setSpawnMode(false); };
+// Activar un mapa; si la partida tiene el traslado automático activado, el grupo viaja con el DM al punto de aparición
+async function activateMap(mapId){
+  const g = gameDoc() || {};
+  const prev = S.activeMapId;
+  saveGame({ activeMapId: mapId });
+  if (g.autoMove === false || !mapId || mapId === prev) return;
+  const ids = gamePCs().filter(t => t.mapId !== mapId && (!t.mapId || t.mapId === prev || !S.maps[t.mapId])).map(t => t.id);
+  if (ids.length) await movePCsTo(ids, mapId, true).catch(e => toast(e.message, true));
+}
+async function movePCsTo(ids, mapId, viaSpawn){
   const m = mapId ? S.maps[mapId] : null;
   let anchor = null;
   if (m){
     const there = gameTokens(m.id).find(t => t.type === 'pc' && !ids.includes(t.id));
-    if (there) anchor = { x: there.x, y: there.y };
+    if (m.spawn && (viaSpawn || !there)) anchor = { x: m.spawn.x, y: m.spawn.y };
+    else if (there) anchor = { x: there.x, y: there.y };
     else if (m.id === S.activeMapId && S.media.w){ const r = cv.getBoundingClientRect(); anchor = screenToMap(r.width / 2, r.height / 2); }
     else anchor = { x: (m.w || 1000) / 2, y: (m.h || 1000) / 2 };
   }
@@ -1099,6 +1118,15 @@ function draw(){
     });
   }
   const now = performance.now();
+  if (S.isDM && !S.viewAsPlayer && !S.projector && m.spawn){
+    const g = gridOf(m);
+    ctx.save();
+    ctx.fillStyle = 'rgba(201,162,39,.18)'; ctx.strokeStyle = '#c9a227'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.arc(m.spawn.x, m.spawn.y, g * 1.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.setLineDash([]); ctx.font = Math.round(g * 0.7) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🚩', m.spawn.x, m.spawn.y);
+    ctx.restore();
+  }
   S.pings = S.pings.filter(p => now - p.t < 2000);
   S.pings.forEach(p => {
     const k = (now - p.t) / 2000;
@@ -1226,6 +1254,15 @@ cv.addEventListener('pointerdown', e => {
   }
   const rect = cv.getBoundingClientRect();
   const p = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
+  if (S.pickSpawn && S.isDM && !S.projector){
+    const m = activeMap();
+    if (m){
+      const g = gridOf(m), sp = { x: Math.floor(p.x / g) * g + g / 2, y: Math.floor(p.y / g) * g + g / 2 };
+      DB.doc('maps/' + m.id).update({ spawn: sp }).then(() => toast('🚩 Punto de aparición de «' + m.name + '» guardado')).catch(err => toast(err.message, true));
+    }
+    setSpawnMode(false);
+    return;
+  }
   if (S.isDM && !S.projector){
     const di = hitDoor(p.x, p.y);
     if (di !== null){
@@ -1828,6 +1865,7 @@ const HELP_KEYS_DM = [
   ['▦', 'Rejilla', 'Muestra u oculta la cuadrícula de casillas.'],
   ['🧱', 'Muros', 'Muestra los muros importados y permite calibrar su posición sobre la imagen.'],
   ['🌫', 'Niebla de guerra', 'Activa o desactiva la niebla: los jugadores solo ven lo que ve su personaje.'],
+  ['🚩', 'Punto de aparición', 'Pulsa y toca el mapa: ahí aparecerá el grupo al llegar a este mapa. Al activar otro mapa, el grupo viaja solo a su 🚩.'],
   ['📱', 'QR de acceso', 'Muestra en el mapa un QR para que los jugadores entren desde el móvil.'],
   ['☰', 'Panel lateral', 'Oculta o muestra el panel para ver el mapa más grande.'],
   ['👁', 'Ver como jugador', 'Previsualiza exactamente lo que ven los jugadores (niebla incluida).'],
@@ -1857,7 +1895,7 @@ function helpSections(){
     '<div class="help-tip">💡 Desde el móvil lo más cómodo es escanear el QR que el DM muestra en el mapa: entras directamente en su partida.</div>']);
   if (inGame && dm) secs.push(['start', '👑 Primeros pasos',
     '<h3>Preparar la sesión</h3><ol><li><b>🗺 Mapas:</b> importa el export de Dungeon Alchemist (JSON de Foundry + imagen/vídeo, o .dd2vtt) y pulsa <b>Activar</b>.</li><li><b>♟ Tokens:</b> crea los personajes (tipo <b>PJ</b>, con clase y raza) y los monstruos (ocultos hasta que quieras revelarlos).</li><li>Pulsa <b>📱</b> para mostrar el QR; cada jugador escanea, entra y elige su personaje.</li><li>Usa <b>📽 Proyector</b> si quieres mostrar la vista de jugador en una tele.</li></ol>' +
-    '<h3>Varios mapas y personajes permanentes</h3><ul><li>Importa todos los mapas que quieras en <b>🗺 Mapas</b>; toca uno para activarlo (es el que ven los jugadores).</li><li>Los PJ viven en la partida, no en un mapa: en <b>♟ Tokens → Personajes de la partida</b> ves dónde está cada uno y lo mueves con <b>Mover a…</b>, <b>📍 Aquí</b> o <b>Traer a todo el grupo</b>. Conservan vida, ataque, inventario y experiencia.</li><li>Si borras un mapa, sus PJ pasan al <b>banquillo</b>; los monstruos de ese mapa se borran.</li></ul>' +
+    '<h3>Varios mapas y personajes permanentes</h3><ul><li>Importa todos los mapas que quieras en <b>🗺 Mapas</b>; toca uno para activarlo (es el que ven los jugadores).</li><li>Los PJ viven en la partida, no en un mapa: en <b>♟ Tokens → Personajes de la partida</b> ves dónde está cada uno y lo mueves con <b>Mover a…</b>, <b>📍 Aquí</b> o <b>Traer a todo el grupo</b>. Conservan vida, ataque, inventario y experiencia.</li><li>Si borras un mapa, sus PJ pasan al <b>banquillo</b>; los monstruos de ese mapa se borran.</li><li>Pon un <b>🚩 punto de aparición</b> en cada mapa: al activar un mapa, el grupo llega solo a ese punto (se puede desactivar en 🗺 Mapas).</li><li>Monstruos y PNJ se quedan guardados en su mapa y en su posición, aunque cierres sesión o cambies de mapa.</li></ul>' +
     '<h3>Durante la partida</h3><ul><li>Arrastra los tokens para moverlos (solo el DM puede).</li><li>Doble clic / doble toque en un token para editarlo (PV, inventario, características…).</li><li>Abre las puertas desde el mapa con los muros visibles (🧱).</li></ul>']);
   if (inGame && !dm) secs.push(['start', '🛡 Primeros pasos',
     '<h3>Tu personaje</h3><ol><li>En <b>🧙 Mi PJ</b> pulsa <b>Este es mi personaje</b> en el que te haya preparado el DM.</li><li>En el mapa solo verás lo que ve tu PJ: la niebla tapa lo demás.</li><li>Tu ficha muestra PV, CA, nivel, características, equipo e inventario.</li></ol>' +
@@ -1987,7 +2025,7 @@ window.addEventListener('resize', () => { if ($('#tourLayer').classList.contains
 document.addEventListener('keydown', e => {
   if ($('#tourLayer').classList.contains('open')){
     if (e.key === 'Escape') endTour(); else if (e.key === 'ArrowRight') $('#tourNext').click(); else if (e.key === 'ArrowLeft') $('#tourPrev').click();
-  } else if (e.key === 'Escape') $('#helpModal').classList.remove('open');
+  } else if (e.key === 'Escape'){ $('#helpModal').classList.remove('open'); if (S.pickSpawn) setSpawnMode(false); }
 });
 function maybeOfferTour(){
   if (S.projector || !S.gameId || lsGet('vtt_tour_' + (S.isDM ? 'dm' : 'pl'))) return;
@@ -2130,6 +2168,11 @@ function renderMapsPanel(p){
   }
   const m = activeMap();
   if (m){
+    const gd = gameDoc() || {};
+    html += '<div class="section-title">🚩 Llegada del grupo</div><div class="card">' +
+      '<div class="row between"><label>Punto de aparición</label><span class="row">' + (m.spawn ? '<span class="mini" style="color:var(--accent)">✓ puesto</span><button class="small" id="clearSpawn">Quitar</button>' : '<span class="mini">sin poner</span>') + '<button class="small primary" id="setSpawn">' + (m.spawn ? 'Mover' : 'Colocar') + '</button></span></div>' +
+      '<div class="row between" style="margin-top:6px"><label>Al cambiar de mapa, llevar al grupo automáticamente</label><button class="small" id="setAutoMove">' + (gd.autoMove === false ? 'No' : 'Sí') + '</button></div>' +
+      '<div class="mini" style="margin-top:4px">Al activar otro mapa, los PJ que estaban en el mapa anterior o en el banquillo aparecen en su 🚩 (o en el centro si no tiene). Los demás PJ se quedan donde estén.</div></div>';
     html += '<div class="section-title">Ajustes del mapa activo</div><div class="card">' +
       '<div class="row between"><label>Niebla de guerra</label><button class="small" id="setFog">' + (m.fog === false ? 'Activar' : 'Desactivar') + '</button></div>' +
       '<div class="row between" style="margin-top:6px"><label>Rejilla (px/casilla)</label><input type="number" id="setGrid" value="' + (m.grid || 70) + '" min="8"></div>' +
@@ -2150,13 +2193,34 @@ function renderMapsPanel(p){
   const ot = $('#othersToggle'); if (ot) ot.onclick = () => { S.mapsOther = !S.mapsOther; renderPanel(); };
   $$('.map-item[data-id]').forEach(el => el.onclick = e => {
     if (e.target.closest('button')) return;
-    saveGame({ activeMapId: el.dataset.id });
+    activateMap(el.dataset.id);
   });
+  const am = $('#setAutoMove'); if (am) am.onclick = () => saveGame({ autoMove: (gameDoc() || {}).autoMove === false });
+  const sp = $('#setSpawn'); if (sp) sp.onclick = () => setSpawnMode(true);
+  const spc = $('#clearSpawn'); if (spc) spc.onclick = () => { const mm = activeMap(); if (mm) DB.doc('maps/' + mm.id).update({ spawn: null }).catch(() => {}); };
   $$('.map-copy').forEach(b => b.onclick = async () => {
     const src = S.maps[b.dataset.id]; if (!src) return;
-    const copy = JSON.parse(JSON.stringify(src)); delete copy.id;
-    copy.gameId = S.gameId; copy.ownerId = S.uid; copy.createdAt = Date.now();
-    try { await DB.doc('maps/' + uuid()).set(copy); toast('Mapa «' + src.name + '» añadido a la partida'); } catch(e){ toast(e.message, true); }
+    b.disabled = true;
+    try {
+      const mine = Object.values(S.tokens).filter(t => t.mapId === src.id && t.gameId === S.gameId);
+      if (!src.gameId || mine.length){
+        // Mapa antiguo sin partida (o con tokens de esta partida): se mueve aquí tal cual, con sus tokens
+        await DB.doc('maps/' + src.id).update({ gameId: S.gameId });
+        toast('Mapa «' + src.name + '» añadido a la partida' + (mine.length ? ' con sus ' + mine.length + ' tokens' : ''));
+      } else {
+        const nid = uuid();
+        const copy = JSON.parse(JSON.stringify(src)); delete copy.id;
+        copy.gameId = S.gameId; copy.ownerId = S.uid; copy.createdAt = Date.now();
+        await DB.doc('maps/' + nid).set(copy);
+        const npcs = Object.values(S.tokens).filter(t => t.mapId === src.id && t.type !== 'pc');
+        for (const t of npcs){
+          const nt = JSON.parse(JSON.stringify(t)); delete nt.id; delete nt.ownerId; delete nt.ownerName;
+          nt.gameId = S.gameId; nt.mapId = nid; nt.createdAt = Date.now();
+          await DB.doc('tokens/' + uuid()).set(nt);
+        }
+        toast('Mapa «' + src.name + '» copiado a la partida' + (npcs.length ? ' con ' + npcs.length + ' monstruos/PNJ en sus posiciones' : ''));
+      }
+    } catch(e){ toast(e.message, true); b.disabled = false; }
   });
   $$('.act-del').forEach(b => b.onclick = e => {
     e.stopPropagation();
@@ -2419,7 +2483,7 @@ $('#tkSave').onclick = async () => {
       if (S.localMode) imgUrl = URL.createObjectURL(S.tkImgBlob);
       else imgUrl = (await uploadAsset(S.tkImgBlob)).url;
     }
-    const center = old ? { x: old.x, y: old.y } : m ? viewCenterSnap(m) : { x: 0, y: 0 };
+    const center = old ? { x: old.x, y: old.y } : m ? ($('#tkType').value === 'pc' && m.spawn ? freeSpot(m, m.spawn) : viewCenterSnap(m)) : { x: 0, y: 0 };
     const t = {
       gameId: S.gameId, mapId: old ? (old.mapId || null) : (m ? m.id : null), name: ($('#tkName').value.trim() || 'Token').slice(0, 40),
       type: $('#tkType').value, color: $('#tkColor').value,

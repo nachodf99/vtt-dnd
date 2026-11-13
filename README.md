@@ -91,6 +91,8 @@ Copia `config.local.example.js` como `config.local.js` con las claves del proyec
 - Cada partida tiene **varios mapas** (`maps.data.gameId`). El DM activa uno y es el que ven los jugadores. Sus mapas de otras partidas se pueden copiar con «➕ Añadir».
 - Los **PJ pertenecen a la partida**, no al mapa: `tokens.data.mapId` indica dónde están (o `null` = banquillo). El DM los mueve con «Mover a…», «📍 Aquí» o «Traer a todo el grupo», y conservan vida, ataque, daño, inventario, equipo y experiencia.
 - Al borrar un mapa, sus PJ pasan al banquillo y sus monstruos se borran.
+- **🚩 Punto de aparición** por mapa (`maps.data.spawn`). Al activar otro mapa, los PJ del mapa anterior y del banquillo viajan solos a su 🚩 (ajuste «llevar al grupo automáticamente», `games.data.autoMove`). Los PJ nuevos también aparecen ahí.
+- Monstruos y PNJ quedan guardados en su mapa y posición. «➕ Añadir» un mapa antiguo lo mueve a la partida con sus tokens; uno de otra partida se copia con sus monstruos y PNJ.
 
 ## Cuentas
 - Se puede jugar como **invitado** (sesión anónima). Al **crear cuenta** (correo + contraseña o Google) el invitado se convierte en cuenta **sin perder nada** (mismo identificador).

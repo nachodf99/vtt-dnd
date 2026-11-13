@@ -117,6 +117,12 @@ create policy profiles_update on public.profiles for update to authenticated usi
 update public.maps m set data = m.data || jsonb_build_object('gameId', g.id)
 from public.games g
 where g.data->>'activeMapId' = m.id and coalesce(m.data->>'gameId', '') = '';
+-- Mapas de la antigua biblioteca (sin partida) con tokens de UNA sola partida: pasan a esa partida
+update public.maps m set data = m.data || jsonb_build_object('gameId', x.gid)
+from (select t.data->>'mapId' mid, min(t.data->>'gameId') gid
+      from public.tokens t where coalesce(t.data->>'mapId','') <> ''
+      group by t.data->>'mapId' having count(distinct t.data->>'gameId') = 1) x
+where x.mid = m.id and coalesce(m.data->>'gameId', '') = '';
 create index if not exists maps_game on public.maps ((data->>'gameId'));
 create policy maps_select on public.maps for select to authenticated
   using (data->>'ownerId' = auth.uid()::text or public.is_game_member(data->>'gameId'));

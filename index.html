@@ -138,6 +138,8 @@ select.cond-add{padding:2px 2px; font-size:11px; width:52px}
 #sidebarToggle{display:none; position:absolute; top:10px; left:10px; z-index:25; width:38px;height:38px;padding:0;font-size:17px; background:rgba(30,24,19,.92)}
 /* Modo proyector: solo el mapa */
 body.projector header, body.projector #sidebar, body.projector #stageTools, body.projector #banner,
+#btnSpawn.on{background:var(--accent); color:#1a1208}
+#spawnHint{display:none; position:absolute; left:50%; top:12px; transform:translateX(-50%); z-index:30; background:rgba(20,16,14,.94); border:1px solid var(--accent); border-radius:10px; padding:8px 14px; font-size:13px}
 body.projector #sidebarToggle, body.projector #btnMapSize, body.projector #tourAsk, body.projector #pickHint, body.projector #lobby, body.projector #distLabel, body.projector #emptyImportBtn{display:none !important}
 body.projector #stage, body.projector #cv{background:#000}
 #projFs{display:none; position:fixed; right:14px; bottom:14px; z-index:50; padding:10px 14px; background:rgba(30,24,19,.9); transition:opacity .4s}
@@ -362,8 +364,10 @@ body.phone .act-grid button{padding:16px 4px}
         <button id="btnWalls" title="Ver muros y calibrar (DM)" style="display:none">🧱</button>
         <button id="btnFog" title="Activar/desactivar niebla (DM)" style="display:none">🌫</button>
         <button id="btnQR" title="Mostrar QR para que los jugadores entren con el móvil" style="display:none">📱</button>
+        <button id="btnSpawn" title="Punto de aparición: toca el mapa donde aparecerá el grupo al llegar a este mapa (DM)" style="display:none">🚩</button>
       </div>
       <div id="distLabel"></div>
+      <div id="spawnHint">🚩 Toca el mapa donde aparecerá el grupo · <a href="#" id="spawnCancel">cancelar</a></div>
       <div id="qrBox"><img id="qrImg" alt="QR"><div class="t">📱 Escanea para jugar</div><div class="c" id="qrCode"></div></div>
       <div id="pickHint" style="display:none; position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); text-align:center; background:rgba(20,16,14,.92); border:1px solid var(--accent); border-radius:14px; padding:18px 22px; z-index:12; max-width:90%">
         <div style="font-family:Cinzel,serif; font-size:20px; color:var(--accent)">Elige tu personaje</div>
