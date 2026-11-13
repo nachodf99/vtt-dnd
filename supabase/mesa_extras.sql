@@ -77,3 +77,15 @@ end $$;
 do $$ begin
   create trigger cleanup_user_extras after delete on auth.users for each row execute function public._cleanup_user_extras();
 exception when duplicate_object then null; when insufficient_privilege then null; end $$;
+
+-- ---------- Sonido: el DM cambia SOLO data.audio (sin pisar rondas ni combate) ----------
+create or replace function public.set_game_audio(gid text, audio jsonb) returns boolean
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_game_dm(gid) then raise exception 'Solo el DM controla el sonido'; end if;
+  if jsonb_typeof(audio) <> 'object' or octet_length(audio::text) > 60000 then raise exception 'Datos de sonido no válidos'; end if;
+  update public.games set data = jsonb_set(data, '{audio}', audio) where id = gid;
+  return true;
+end $$;
+revoke all on function public.set_game_audio(text, jsonb) from public;
+grant execute on function public.set_game_audio(text, jsonb) to authenticated;

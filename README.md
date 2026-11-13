@@ -82,6 +82,17 @@ Copia `config.local.example.js` como `config.local.js` con las claves del proyec
 - La ficha muestra las 6 características, el equipo puesto y el desglose de la CA. El DM edita las características y un ajuste de CA en el modal del token.
 - Los objetos escritos a mano se enlazan solos con el catálogo si el nombre coincide (sin importar tildes ni mayúsculas); si no, se marcan como «personalizado» sin efecto automático.
 
+## Luces, medidas, plantillas y sonido (en `develop`)
+- **Ejecutar `supabase/mesa_extras.sql`** en cada proyecto (re-ejecutable): crea las tablas `templates` y `explored`, la función `set_game_audio` y permite subir audio al bucket `assets`.
+- **Luces**: al importar se leen las luces de Dungeon Alchemist (export de Foundry y `.dd2vtt`). Cada mapa tiene un nivel de **oscuridad** (🗺 Mapas → Luz y oscuridad); desde el 55 % los PJ solo ven lo iluminado o con **visión en la oscuridad** (por raza: elfo, enano, gnomo, semielfo, semiorco, tiflin = 12 casillas; o a mano en el token). Los tokens pueden llevar antorcha, linterna, vela o conjuro Luz. Con 🧱 el DM ve las 💡 y las enciende o apaga tocándolas. Si el radio no cuadra con el dibujo, ajusta «tamaño ×».
+- **📏 Regla** con varios puntos (cada toque añade un tramo); el resto del grupo la ve en directo.
+- **📐 Plantillas de área** (círculo, cono, línea de 5 ft, cubo): se arrastran desde el origen y marcan las casillas afectadas. Las crea cualquiera; las borra su autor o el DM.
+- **Niebla explorada guardada** por jugador y mapa (en el dispositivo y en Supabase). El DM la reinicia para todos desde 🗺 Mapas.
+- **🎵 Sonido**: el DM sube música (una a la vez) y ambientes (se mezclan); suenan sincronizados en todos los dispositivos. Cada uno ajusta su volumen o silencia; si el navegador bloquea el audio aparece «🔈 Activar sonido». El proyector no reproduce audio para no duplicarlo.
+
+## Pruebas automáticas
+`tools/pruebas/` contiene un servidor que imita Supabase (auth anónima, REST con las políticas RLS reales sobre un PostgreSQL local, storage y realtime) y tres baterías de pruebas de extremo a extremo con varios jugadores a la vez. Instrucciones en `tools/pruebas/LEEME.md`.
+
 ## Pantallas y ayuda
 - Diseño adaptable: en ordenador, panel lateral (se oculta con ☰); en móvil o pantalla estrecha, panel y mapa apilados (⤢ cambia el tamaño del mapa); en móvil horizontal, lado a lado.
 - Botón **?** en la cabecera (y «❓ Ayuda» en el lobby): ayuda por secciones según seas DM o jugador, explicación de cada botón y preguntas frecuentes.

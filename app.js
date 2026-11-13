@@ -114,18 +114,22 @@ function makeLocalDB(){
 }
 
 /* ============ saneado de datos recibidos (defensa contra XSS de otros usuarios) ============ */
-const NUM_KEYS = { tokens: ['hp','hpMax','ac','atk','range','x','y','size','vision','xp','level','pb','attuned','save','acMisc','lightBright','lightDim'], rolls: ['total','ts'], maps: ['grid','w','h','gridOffX','gridOffY','wallOffX','wallOffY','defaultVision','createdAt','darkness','lightScale','exploredResetAt'], games: ['createdAt'], templates: ['x','y','angle','len','dx','dy','ts'] };
+const NUM_KEYS = { tokens: ['hp','hpMax','ac','atk','range','x','y','size','vision','xp','level','pb','attuned','save','acMisc','lightBright','lightDim'], rolls: ['total','ts'], maps: ['grid','w','h','gridOffX','gridOffY','wallOffX','wallOffY','defaultVision','createdAt','darkness','lightScale','exploredReset'], games: ['createdAt'], templates: ['x','y','angle','len','dx','dy','ts'] };
 const HEX_RE = /^#[0-9a-f]{3,8}$/i;
+// URLs de recursos aceptadas (https; en local también http://localhost para el servidor de pruebas)
+const DEV_HOST = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+const ASSET_RE = DEV_HOST ? /^(https:\/\/|blob:|http:\/\/(localhost|127\.0\.0\.1)[:/])/i : /^(https:\/\/|blob:)/i;
+const IMG_RE = DEV_HOST ? /^(https:\/\/|blob:|data:image\/|http:\/\/(localhost|127\.0\.0\.1)[:/])/i : /^(https:\/\/|blob:|data:image\/)/i;
 const num0 = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 function cleanDoc(t, d){
   if (!d || typeof d !== 'object') return d;
   (NUM_KEYS[t] || []).forEach(k => { if (d[k] != null && typeof d[k] !== 'number'){ const n = Number(d[k]); d[k] = Number.isFinite(n) ? n : 0; } });
   if (t === 'tokens'){
     if (d.color != null && !/^#[0-9a-f]{3,8}$/i.test(String(d.color))) d.color = '#777777';
-    if (d.imgUrl && !/^(https:\/\/|blob:|data:image\/)/i.test(String(d.imgUrl))) d.imgUrl = null;
+    if (d.imgUrl && !IMG_RE.test(String(d.imgUrl))) d.imgUrl = null;
     if (d.inventory && Array.isArray(d.inventory.items)) d.inventory.items.forEach(it => { if (it && typeof it.qty !== 'number') it.qty = Number(it.qty) || 1; });
   }
-  if (t === 'maps' && d.assetUrl && !/^(https:\/\/|blob:)/i.test(String(d.assetUrl))) d.assetUrl = '';
+  if (t === 'maps' && d.assetUrl && !ASSET_RE.test(String(d.assetUrl))) d.assetUrl = '';
   if (t === 'maps' && d.lights != null){
     d.lights = Array.isArray(d.lights) ? d.lights.slice(0, 500).filter(l => l && typeof l === 'object').map(l => ({
       x: num0(l.x), y: num0(l.y), bright: Math.max(0, num0(l.bright)), dim: Math.max(0, num0(l.dim)),
@@ -143,7 +147,7 @@ function cleanDoc(t, d){
   }
   if (t === 'games' && d.audio && typeof d.audio === 'object'){
     const a = d.audio;
-    a.tracks = Array.isArray(a.tracks) ? a.tracks.slice(0, 80).filter(x => x && x.id && /^(https:\/\/|blob:)/i.test(String(x.url || ''))).map(x => ({
+    a.tracks = Array.isArray(a.tracks) ? a.tracks.slice(0, 80).filter(x => x && x.id && ASSET_RE.test(String(x.url || ''))).map(x => ({
       id: String(x.id).slice(0, 60), name: String(x.name || 'Pista').slice(0, 80), url: String(x.url),
       kind: x.kind === 'amb' ? 'amb' : 'music', vol: clamp(x.vol == null ? 0.7 : num0(x.vol), 0, 1), loop: x.loop !== false
     })) : [];
@@ -715,6 +719,7 @@ function joinGame(id, silent){
   selectTab(S.tab);
   updateQR();
   maybeOfferTour();
+  syncAudio();   // si ya suena música en la partida, empezar a oírla al entrar
 }
 function leaveGame(){
   S.gameId = null; S.isDM = false; S.lobbyManual = true;
@@ -833,6 +838,8 @@ function syncFromGame(){
   const newMap = g ? (g.activeMapId || null) : null;
   if (newMap !== S.activeMapId){
     S.activeMapId = newMap; S.fogDirty = true; loadActiveMedia();
+    S.tplDraft = null;
+    if (S.ruler){ S.ruler = null; updateRulerBar(); rulerSend(true); }
   } else {
     $('#emptyState').style.display = (S.gameId && !newMap) ? 'flex' : (newMap ? 'none' : 'flex');
   }
@@ -845,7 +852,7 @@ function saveGame(patch){
 function gameMaps(){ return Object.values(S.maps).filter(m => (m.gameId || null) === (S.gameId || null) || (S.localMode && !m.gameId)).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)); }
 function gamePCs(){ return Object.values(S.tokens).filter(t => t.type === 'pc' && (t.gameId || null) === (S.gameId || null)).sort((a, b) => (a.name || '').localeCompare(b.name || '')); }
 function myPC(){ return gamePCs().find(t => t.ownerId === S.uid) || null; }
-function safeUrl(u){ u = String(u || ''); return /^(https:\/\/|blob:|data:image\/)/i.test(u) ? u : ''; }
+function safeUrl(u){ u = String(u || ''); return IMG_RE.test(u) ? u : ''; }
 function freeSpot(m, near){
   const g = gridOf(m), occ = new Set(gameTokens(m.id).map(t => Math.floor(t.x / g) + ',' + Math.floor(t.y / g)));
   const cx = Math.floor(near.x / g), cy = Math.floor(near.y / g);
@@ -1066,7 +1073,7 @@ function getExplored(m){
   const h = Math.max(1, Math.round((S.media.h || 1) * EXPLORED_SCALE));
   if (!c || c.width !== w || c.height !== h){
     c = document.createElement('canvas'); c.width = w; c.height = h;
-    c._reset = m.exploredResetAt || 0;
+    c._reset = m.exploredReset || 0;
     S.explored[key] = c;
     loadExplored(m, c, key);
   }
@@ -1825,7 +1832,7 @@ function renderPjPanel(p){
   bindTokenPanel();
   // Acciones
   // Para mover hay que tocar el mapa: si estaba oculto, se vuelve a mostrar
-  if (S.phone && mapHidden() && moveState()){ setMapHidden(false); toast('🗺 Mapa visible: toca una casilla iluminada para moverte'); }
+  if (S.phone && mapHidden() && moveState()) setMapHidden(false);
   const am = $('#actMove'); if (am) am.onclick = async () => {
     am.disabled = true;
     try {
@@ -2459,7 +2466,7 @@ function renderMapsPanel(p){
     $('#setShared').onclick = () => DB.doc('maps/' + m.id).update({ sharedVision: m.sharedVision !== true }).catch(() => {});
     $('#setRemember').onclick = () => DB.doc('maps/' + m.id).update({ rememberExplored: m.rememberExplored === false }).catch(() => {});
     $('#resetExplored').onclick = e => armConfirm(e.currentTarget, () => {
-      DB.doc('maps/' + m.id).update({ exploredResetAt: Date.now() })
+      DB.doc('maps/' + m.id).update({ exploredReset: (m.exploredReset || 0) + 1 })
         .then(() => toast('Zonas exploradas reiniciadas para todos'))
         .catch(err => toast(err.message, true));
     });
@@ -3261,7 +3268,7 @@ function expLsKey(mapId){ return 'vtt_exp_' + S.uid + '_' + mapId; }
 async function loadExplored(m, c, key){
   const apply = rec => {
     if (!rec || typeof rec.png !== 'string' || !rec.png.startsWith('data:image/png;base64,')) return;
-    if ((rec.ts || 0) < (m.exploredResetAt || 0)) return;
+    if ((rec.rv || 0) !== (m.exploredReset || 0)) return;   // guardado antes de un reinicio del DM
     const img = new Image();
     img.onload = () => { if (S.explored[key] !== c) return; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); S.fogDirty = true; needsDraw(); };
     img.src = rec.png;
@@ -3280,10 +3287,11 @@ function scheduleExploredSave(mapId){
 function saveExplored(mapId){
   delete expSave.timers[mapId];
   const c = S.explored[(S.gameId || 'x') + ':' + mapId];
-  if (!c || !S.maps[mapId]) return;
+  const m = S.maps[mapId];
+  if (!c || !m) return;
   let png; try { png = c.toDataURL('image/png'); } catch(e){ return; }
   if (png.length > 900000) return;     // mapa enorme: no se guarda
-  const rec = { ts: Date.now(), png };
+  const rec = { ts: Date.now(), rv: m.exploredReset || 0, png };
   lsSet(expLsKey(mapId), rec);
   if (!S.localMode && SB && S.gameId){
     SB.from('explored').upsert({ user_id: S.uid, map_id: mapId, game_id: S.gameId, data: rec }).then(({ error }) => { if (error) console.warn('explorado', error.message); });
@@ -3296,8 +3304,8 @@ function checkExploredResets(){
   Object.keys(S.explored).forEach(key => {
     const mapId = key.slice(key.indexOf(':') + 1), m = S.maps[mapId], c = S.explored[key];
     if (!m || !c) return;
-    const r = m.exploredResetAt || 0;
-    if (r > (c._reset || 0)){
+    const r = m.exploredReset || 0;
+    if (r !== (c._reset || 0)){
       c._reset = r;
       c.getContext('2d').clearRect(0, 0, c.width, c.height);
       clearTimeout(expSave.timers[mapId]); delete expSave.timers[mapId];
@@ -3518,12 +3526,20 @@ function drawTemplate(t, m, g, preview){
   ctx.fillStyle = 'rgba(' + rgb + ',1)'; ctx.beginPath(); ctx.arc(t.x, t.y, 5 / S.cam.s, 0, Math.PI * 2); ctx.fill();
   if (!preview){
     const lbl = t.len + ' ft' + (t.name ? ' · ' + t.name : '');
+    const c = tplCenter(t, g);
     ctx.font = '600 ' + (12 / S.cam.s) + 'px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const w = ctx.measureText(lbl).width;
-    ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(t.x - w / 2 - 4 / S.cam.s, t.y - 24 / S.cam.s, w + 8 / S.cam.s, 16 / S.cam.s);
-    ctx.fillStyle = '#fff'; ctx.fillText(lbl, t.x, t.y - 16 / S.cam.s);
+    ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(c.x - w / 2 - 4 / S.cam.s, c.y - 8 / S.cam.s, w + 8 / S.cam.s, 16 / S.cam.s);
+    ctx.fillStyle = '#fff'; ctx.fillText(lbl, c.x, c.y);
   }
   ctx.restore();
+}
+function tplCenter(t, g){
+  const L = t.len / 5 * g, a = t.angle || 0;
+  if (t.shape === 'circle') return { x: t.x, y: t.y + Math.min(L * 0.5, g) };
+  if (t.shape === 'cube') return { x: t.x + t.dx * L / 2, y: t.y + t.dy * L / 2 };
+  const k = t.shape === 'cone' ? 0.62 : 0.5;
+  return { x: t.x + Math.cos(a) * L * k, y: t.y + Math.sin(a) * L * k };
 }
 function drawTemplates(m, g){
   mapTemplates(m).forEach(t => drawTemplate(t, m, g, false));
@@ -3586,7 +3602,9 @@ function syncAudio(){
     if (a.paused && !a._done) a.play().then(() => setAudioBlocked(false)).catch(e => { if (e && e.name === 'NotAllowedError') setAudioBlocked(true); });
   });
   updateAudioBtn();
-  if (S.tab === 'audio' && !document.activeElement?.closest?.('#panel')) renderPanel();
+  // no repintar el panel mientras el DM arrastra un deslizador de volumen
+  const ae = document.activeElement;
+  if (S.tab === 'audio' && !(ae && ae.type === 'range' && ae.closest && ae.closest('#panel'))) renderPanel();
 }
 function seekAudio(a){
   if (!a._at || !Number.isFinite(a.duration) || !a.duration) return;
@@ -3614,7 +3632,14 @@ $('#btnAudio').onclick = () => {
 };
 // Primer toque en cualquier sitio: desbloquea el audio si estaba bloqueado
 document.addEventListener('pointerdown', () => { if (AUD.blocked) unlockAudio(); }, true);
-function saveAudio(tracks, play){ saveGame({ audio: { tracks, play } }); }
+function saveAudio(tracks, play){
+  const audio = { tracks, play };
+  if (S.localMode || !SB){ saveGame({ audio }); return; }
+  const g = gameDoc(); if (g) g.audio = audio;   // respuesta inmediata en este dispositivo
+  syncAudio();
+  // en el servidor solo se toca data.audio: no pisa la ronda ni el combate que estén cambiando los jugadores
+  rpc('set_game_audio', { gid: S.gameId, audio }).catch(e => toast('Sonido: ' + e.message, true));
+}
 function audioPlay(id){
   const st = audioState(), tr = st.tracks.find(t => t.id === id); if (!tr) return;
   const play = Object.assign({}, st.play);
@@ -3698,6 +3723,24 @@ function syncAudioVolumes(){
 // cada 30 s, corrige la deriva respecto al resto del grupo
 setInterval(() => Object.values(AUD.els).forEach(a => { if (!a.paused) seekAudio(a); }), 30000);
 
+/* ============ ganchos de pruebas (solo en localhost) ============ */
+if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
+  const px = c => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 128) n++; return n; };
+  Object.assign(window, {
+    __cam: () => ({ x: S.cam.x, y: S.cam.y, s: S.cam.s }),
+    __tokVisible: id => { const t = S.tokens[id]; if (!t) return null; if (S.fogDirty) recomputeFog(); return tokenVisibleToPlayers(t); },
+    __seen: (x, y) => { if (S.fogDirty) recomputeFog(); return pointSeen(x, y); },
+    __rulers: () => Object.values(S.rulers).map(r => ({ name: r.name, n: r.pts.length })),
+    __tpls: () => { const m = activeMap(); return m ? mapTemplates(m).length : -1; },
+    __tplCells: i => { const m = activeMap(); return tplCells(mapTemplates(m)[i], m).length; },
+    __expPixels: () => { const m = activeMap(); if (!m) return -1; if (S.fogDirty) recomputeFog(); return px(getExplored(m)); },
+    __sbClient: () => SB,
+    __recompute: () => recomputeFog(),
+    __reachCells: () => (S.reach || []).map(c => ({ x: c.x, y: c.y })),
+    __resetLightCache: () => { lightCache = { key: null, list: [] }; },
+    __seenPixels: () => { if (S.fogDirty) recomputeFog(); const m = activeMap(); const ex = getExplored(m); const c = document.createElement('canvas'); c.width = ex.width; c.height = ex.height; c.getContext('2d').drawImage(seenCanvas, 0, 0, c.width, c.height); return px(c); }
+  });
+}
 /* ============ inicial ============ */
 resizeCanvas();
 renderPanel();
