@@ -345,12 +345,19 @@ function applyRole(){
   $('#btnSpawn').style.display = (S.isDM && !S.projector) ? '' : 'none';
   $('#tabMapsBtn').style.display = S.isDM ? '' : 'none';
   $('#emptyImportBtn').style.display = S.isDM ? '' : 'none';
+  $('#emptyState .big').textContent = S.projector ? 'La aventura está a punto de comenzar' : 'No hay mapa activo';
   $('#emptyHint').textContent = S.projector ? 'Esperando a que el DM active un mapa…' : S.isDM
     ? 'Exporta tu mapa desde Dungeon Alchemist (formato Foundry o Universal VTT) e impórtalo aquí.'
     : 'El DM aún no ha activado ningún mapa. ¡Prepara tus dados!';
   renderPanel();
 }
 
+function updateProjTitle(){
+  const el = $('#projTitle'); if (!el) return;
+  const g = gameDoc();
+  el.textContent = g ? (g.name || 'Partida') : 'Mesa de rol';
+  el.classList.toggle('has-map', !!activeMap());
+}
 /* ============ partidas (lobby) ============ */
 function gameDoc(){ return S.gameId ? (S.games[S.gameId] || null) : null; }
 function showLobby(){
@@ -737,6 +744,7 @@ function updateGameBadge(){
   b.style.display = '';
   b.textContent = '🎲 ' + g.name + (S.isDM && S.gameCode ? ' · ' + S.gameCode : '');
   b.title = S.isDM && S.gameCode ? 'Código de la partida: ' + S.gameCode : g.name;
+  updateProjTitle();
 }
 function joinRoomFor(id){
   if (!SB || S.localMode) return;
@@ -815,7 +823,7 @@ function startSubscriptions(){
     const arr = snapDocs(snap); S.maps = {};
     arr.forEach(m => { S.maps[m.id] = m; });
     checkExploredResets();
-    S.fogDirty = true; loadActiveMedia(); renderPanel(); needsDraw();
+    S.fogDirty = true; loadActiveMedia(); renderPanel(); needsDraw(); updateProjTitle();
   });
   DB.collection('tokens').onSnapshot(snap => {
     const arr = snapDocs(snap); S.tokens = {};
@@ -838,7 +846,7 @@ function syncFromGame(){
   const newMap = g ? (g.activeMapId || null) : null;
   if (newMap !== S.activeMapId){
     S.activeMapId = newMap; S.fogDirty = true; loadActiveMedia();
-    S.tplDraft = null;
+    S.tplDraft = null; updateProjTitle();
     if (S.ruler){ S.ruler = null; updateRulerBar(); rulerSend(true); }
   } else {
     $('#emptyState').style.display = (S.gameId && !newMap) ? 'flex' : (newMap ? 'none' : 'flex');

@@ -149,13 +149,33 @@ select.cond-add{padding:2px 2px; font-size:11px; width:52px}
 #lobbyBox .sub{text-align:center; color:var(--ink-dim); margin-bottom:18px}
 
 #sidebarToggle{display:none; position:absolute; top:10px; left:10px; z-index:25; width:38px;height:38px;padding:0;font-size:17px; background:rgba(30,24,19,.92)}
-/* Modo proyector: solo el mapa */
-body.projector header, body.projector #sidebar, body.projector #stageTools, body.projector #banner,
 #btnSpawn.on{background:var(--accent); color:#1a1208}
 #spawnHint{display:none; position:absolute; left:50%; top:12px; transform:translateX(-50%); z-index:30; background:rgba(20,16,14,.94); border:1px solid var(--accent); border-radius:10px; padding:8px 14px; font-size:13px}
+/* Modo proyector: solo el mapa */
+body.projector header, body.projector #sidebar, body.projector #stageTools, body.projector #banner, body.projector #spawnHint,
 body.projector #sidebarToggle, body.projector #btnMapSize, body.projector #btnHideMap, body.projector .stage-bar, body.projector #btnAudio, body.projector #tourAsk, body.projector #pickHint, body.projector #lobby, body.projector #distLabel, body.projector #emptyImportBtn{display:none !important}
-body.projector #stage, body.projector #cv{background:#000}
-#projFs{display:none; position:fixed; right:14px; bottom:14px; z-index:50; padding:10px 14px; background:rgba(30,24,19,.9); transition:opacity .4s}
+body.projector #stage{background:radial-gradient(ellipse at center, #241b14 0%, #14100e 60%, #0b0907 100%)}
+body.projector #cv{background:transparent}
+/* marco de mesa: viñeta y filete dorado alrededor de la pantalla */
+body.projector #stage::after{content:''; position:absolute; inset:0; pointer-events:none; z-index:12;
+  box-shadow:inset 0 0 0 2px rgba(201,162,39,.35), inset 0 0 0 7px #0b0907, inset 0 0 0 8px rgba(201,162,39,.18), inset 0 0 120px rgba(0,0,0,.75)}
+body.projector #emptyState{z-index:13}
+body.projector #emptyState > div:first-child{font-size:72px; filter:drop-shadow(0 6px 18px rgba(201,162,39,.35)); animation:projFloat 4s ease-in-out infinite}
+body.projector #emptyState .big{font-size:42px; color:var(--accent); letter-spacing:2px; text-shadow:0 2px 24px rgba(201,162,39,.35)}
+body.projector #emptyState .big::after{content:''; display:block; width:240px; height:1px; margin:16px auto 0; background:linear-gradient(90deg, transparent, var(--accent), transparent)}
+body.projector #emptyHint{font-size:18px; color:var(--ink-dim); margin-top:14px}
+@keyframes projFloat{50%{transform:translateY(-8px)}}
+/* cartel con el nombre de la partida */
+#projTitle{display:none; position:absolute; top:22px; left:50%; transform:translateX(-50%); z-index:14; pointer-events:none;
+  font:700 18px Cinzel,serif; letter-spacing:3px; color:var(--accent); padding:8px 26px; white-space:nowrap;
+  background:linear-gradient(180deg, rgba(30,24,19,.92), rgba(20,16,14,.92)); border:1px solid rgba(201,162,39,.55); border-radius:10px;
+  box-shadow:0 6px 24px rgba(0,0,0,.6); transition:opacity 1.2s}
+#projTitle::before, #projTitle::after{content:'⚔'; font-size:13px; opacity:.7; margin:0 12px; vertical-align:2px}
+body.projector #projTitle{display:block}
+body.projector.idle #projTitle.has-map{opacity:0}
+#projFs{display:none; position:fixed; right:22px; bottom:22px; z-index:50; padding:10px 16px; font-weight:600;
+  background:linear-gradient(180deg, rgba(40,32,25,.95), rgba(30,24,19,.95)); border-color:rgba(201,162,39,.6); color:var(--accent);
+  box-shadow:0 4px 18px rgba(0,0,0,.6); transition:opacity .4s}
 body.projector #projFs{display:block}
 body.projector.idle #projFs{opacity:0; pointer-events:none}
 body.projector.idle{cursor:none}
@@ -165,7 +185,10 @@ body.projector.idle{cursor:none}
 #qrBox img{display:block; width:150px; height:150px; image-rendering:pixelated}
 #qrBox .t{font:700 13px Inter,sans-serif; margin-top:6px}
 #qrBox .c{font:600 11px Inter,sans-serif; color:#555; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-body.projector #qrBox img{width:210px; height:210px}
+body.projector #qrBox{left:26px; bottom:26px; background:linear-gradient(180deg,#2a2119,#1e1813); border:1px solid rgba(201,162,39,.6); padding:14px; box-shadow:0 8px 30px rgba(0,0,0,.7)}
+body.projector #qrBox img{width:210px; height:210px; background:#fff; padding:8px; border-radius:8px}
+body.projector #qrBox .t{color:var(--accent); font-family:Cinzel,serif; font-size:15px; margin-top:10px}
+body.projector #qrBox .c{color:var(--ink-dim); max-width:210px}
 #btnQR.on{border-color:var(--accent)}
 /* Ficha de personaje */
 .sheet-head{display:flex; gap:12px; align-items:center}
@@ -418,6 +441,7 @@ body.phone.map-hidden .stage-bar{display:none}
         <div style="font-family:Cinzel,serif; font-size:20px; color:var(--accent)">Elige tu personaje</div>
         <div class="muted" style="margin-top:6px">En la pestaña 🧙 Mi PJ, pulsa «Este es mi personaje».<br>Verás lo que ve tu PJ.</div>
       </div>
+      <div id="projTitle"></div>
       <div id="emptyState">
         <div style="font-size:52px">🗺️</div>
         <div class="big">No hay mapa activo</div>
