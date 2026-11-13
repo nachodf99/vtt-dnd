@@ -288,6 +288,14 @@ body.phone header{padding:6px 8px; gap:6px; flex-wrap:nowrap; overflow-x:auto; s
 body.phone header::-webkit-scrollbar{display:none}
 body.phone header .logo{font-size:15px}
 body.phone .badge{white-space:nowrap}
+/* Cabecera del móvil: solo iconos donde se entiende, y el nombre de la partida con todo el sitio sobrante */
+body.phone #roleBadge .lbl, body.phone #btnHideMap .lbl{display:none}
+body.phone #roleBadge{padding:3px 7px; font-size:13px}
+body.phone #btnHideMap{padding:5px 10px; font-size:16px}
+body.phone.map-hidden #btnHideMap{background:#3a2c10}
+body.phone #gameBadge{min-width:0; max-width:none; flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; font-size:12px; padding:4px 10px}
+body.phone header .spacer{display:none}
+body.phone header{overflow-x:visible}
 body.phone #stageTools{top:8px; right:8px; gap:5px}
 body.phone #stageTools button{width:36px; height:36px; font-size:15px}
 body.phone #tabs button{padding:8px 2px 7px}

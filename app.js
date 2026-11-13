@@ -340,7 +340,8 @@ function applyRole(){
   if (!S.gameId){ rb.style.display = 'none'; }
   else {
     rb.style.display = '';
-    rb.textContent = S.isDM ? '👑 Dungeon Master' : '🛡 Jugador';
+    rb.innerHTML = S.isDM ? '👑<span class="lbl"> Dungeon Master</span>' : '🛡<span class="lbl"> Jugador</span>';
+    rb.title = S.isDM ? 'Eres el Dungeon Master' : 'Eres jugador';
     rb.className = 'badge' + (S.isDM ? ' dm' : '');
   }
   $('#btnViewAs').style.display = (S.isDM && S.gameId) ? '' : 'none';
@@ -837,7 +838,7 @@ function startSubscriptions(){
   DB.collection('tokens').onSnapshot(snap => {
     const arr = snapDocs(snap); S.tokens = {};
     arr.forEach(t => { S.tokens[t.id] = t; });
-    S.fogDirty = true; renderPanel(); needsDraw();
+    S.fogDirty = true; renderPanel(); needsDraw(); followMyPC();
   });
   DB.collection('templates').onSnapshot(snap => {
     S.templates = snapDocs(snap);
@@ -973,15 +974,55 @@ function resizeCanvas(){
   needsDraw();
 }
 window.addEventListener('resize', resizeCanvas);
-function fitView(){
+function fitView(whole){
   if (S.projector && lastCamMsg){ applyCamFromDM(lastCamMsg); return; }
   const m = activeMap(); if (!m || !S.media.w) return;
   const r = cv.getBoundingClientRect();
   const s = Math.min(r.width / S.media.w, r.height / S.media.h) * 0.95;
+  // Jugador con el mapa entero demasiado pequeño (móvil): encuadrar a su PJ a un tamaño cómodo
+  const pc = !S.isDM && !S.projector ? myPC() : null;
+  if (!whole && pc && pc.mapId === m.id && gridOf(m) * s < 34){ focusOnPC(pc, m); return; }
+  S.camFocus = false;
   S.cam.s = s;
   S.cam.x = (r.width - S.media.w * s) / 2;
   S.cam.y = (r.height - S.media.h * s) / 2;
   needsDraw();
+}
+let lastPcPos = null;
+// Encuadra al PJ con casillas de ~46 px (o lo que quepa: al menos 7 casillas en el lado corto)
+function focusOnPC(pc, m){
+  const r = cv.getBoundingClientRect(); if (!r.width) return;
+  const g = gridOf(m);
+  const s = Math.min(46 / g, Math.min(r.width, r.height) / (7 * g));
+  S.cam.s = s;
+  S.cam.x = r.width / 2 - pc.x * s;
+  S.cam.y = r.height / 2 - pc.y * s;
+  S.camFocus = true;
+  lastPcPos = pc.x + ',' + pc.y;
+  needsDraw();
+}
+// Si mi PJ sale del encuadre (se ha movido), la cámara lo sigue con suavidad
+function followMyPC(){
+  if (S.isDM || S.projector) return;
+  const pc = myPC(), m = activeMap();
+  if (!pc || !m || pc.mapId !== m.id){ lastPcPos = null; return; }
+  const pos = pc.x + ',' + pc.y;
+  if (pos === lastPcPos) return;
+  const first = lastPcPos === null; lastPcPos = pos;
+  if (first) return;
+  const r = cv.getBoundingClientRect(); if (!r.width) return;
+  const sx = S.cam.x + pc.x * S.cam.s, sy = S.cam.y + pc.y * S.cam.s;
+  const mx = r.width * 0.18, my = r.height * 0.18;
+  if (sx >= mx && sx <= r.width - mx && sy >= my && sy <= r.height - my) return;
+  const tx = r.width / 2 - pc.x * S.cam.s, ty = r.height / 2 - pc.y * S.cam.s;
+  const x0 = S.cam.x, y0 = S.cam.y, t0 = performance.now();
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const step = now => {
+    const k = reduce ? 1 : Math.min(1, (now - t0) / 350), e = 1 - Math.pow(1 - k, 3);
+    S.cam.x = x0 + (tx - x0) * e; S.cam.y = y0 + (ty - y0) * e; needsDraw();
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
 }
 function screenToMap(sx, sy){ return { x: (sx - S.cam.x) / S.cam.s, y: (sy - S.cam.y) / S.cam.s }; }
 
@@ -1560,7 +1601,8 @@ cv.addEventListener('dblclick', e => {
 
 $('#btnZoomIn').onclick = () => { S.cam.s = clamp(S.cam.s * 1.25, 0.04, 6); needsDraw(); };
 $('#btnZoomOut').onclick = () => { S.cam.s = clamp(S.cam.s / 1.25, 0.04, 6); needsDraw(); };
-$('#btnFit').onclick = fitView;
+// ⛶: para el jugador alterna entre su PJ y el mapa entero
+$('#btnFit').onclick = () => fitView(!S.isDM && S.camFocus);
 $('#btnGrid').onclick = () => { S.showGrid = !S.showGrid; needsDraw(); };
 $('#btnWalls').onclick = () => { S.showWalls = !S.showWalls; $('#btnWalls').style.borderColor = S.showWalls ? 'var(--accent)' : ''; renderPanel(); needsDraw(); };
 $('#btnFog').onclick = () => {
@@ -1587,7 +1629,9 @@ function mapHidden(){ return document.body.classList.contains('map-hidden'); }
 function setMapHidden(h){
   document.body.classList.toggle('map-hidden', !!h);
   lsSet('vtt_map_hidden', h ? 1 : null);
-  $('#btnHideMap').textContent = h ? '🗺 Ver mapa' : '🗺 Ocultar mapa';
+  $('#btnHideMap').innerHTML = '🗺<span class="lbl"> ' + (h ? 'Ver mapa' : 'Ocultar mapa') + '</span>';
+  $('#btnHideMap').setAttribute('aria-pressed', h ? 'true' : 'false');
+  $('#btnHideMap').title = h ? 'Mostrar el mapa' : 'Ocultar el mapa para tener más espacio para el panel';
   if (!h) resizeCanvas();
 }
 $('#btnHideMap').onclick = () => setMapHidden(!mapHidden());
@@ -2628,6 +2672,7 @@ function bindTokenPanel(){
     }
     S.fogDirty = true;
     toast('¡Ahora eres ' + ((S.tokens[b.dataset.tid] || {}).name || 'tu personaje') + '!');
+    setTimeout(() => fitView(), 600);
     const t = S.tokens[b.dataset.tid];
     if (t){ const r = cv.getBoundingClientRect(); S.cam.x = r.width / 2 - t.x * S.cam.s; S.cam.y = r.height / 2 - t.y * S.cam.s; needsDraw(); }
   });

@@ -87,7 +87,13 @@ async def main():
         cells = await pl.evaluate("window.__reachCells()")
         check('Hay casillas iluminadas para moverse', len(cells) > 0, str(len(cells)))
         if cells:
-            c = cells[0]; x, y = await map_to_screen(pl, c['x'], c['y'])
+            b = await pl.locator('#cv').bounding_box()
+            vis = []
+            for c0 in cells:
+                x0, y0 = await map_to_screen(pl, c0['x'], c0['y'])
+                if b['x'] + 70 < x0 < b['x'] + b['width'] - 70 and b['y'] + 20 < y0 < b['y'] + b['height'] - 20: vis.append(c0)
+            check('Hay casillas de movimiento a la vista con el zoom al PJ', len(vis) > 0, str(len(vis)))
+            c = vis[0] if vis else cells[0]; x, y = await map_to_screen(pl, c['x'], c['y'])
             await pl.touchscreen.tap(x, y); await pl.wait_for_timeout(2000)
             pos = json.loads(psql("select json_build_object('x', data->'x', 'y', data->'y') from tokens where id='%s'" % tid))
             check('El jugador se mueve tocando la casilla', pos['x'] == c['x'] and pos['y'] == c['y'], '%s vs %s' % (pos, c))
