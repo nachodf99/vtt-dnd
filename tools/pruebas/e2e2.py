@@ -1,7 +1,6 @@
 import asyncio, json, time
 from playwright.async_api import async_playwright
-import importlib.util
-spec = importlib.util.spec_from_file_location('e2e', '/home/claude/mocksb/e2e.py')
+
 src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'e2e.py')).read().split('async def main(step):')[0]
 ns = {}; exec(src, ns)
 psql, check, new_client, wait_loaded, map_to_screen, dump, results, APP = ns['psql'], ns['check'], ns['new_client'], ns['wait_loaded'], ns['map_to_screen'], ns['dump'], ns['results'], ns['APP']
