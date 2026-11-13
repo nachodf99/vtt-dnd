@@ -42,7 +42,9 @@ const S = {
   attacks: [], atkSel: null, lastLevel: {}, lastHp: {},
   items: [], itemById: {}, itemTarget: null, recalcAsked: {},
   drag: null, pan: null, pings: [], peers: [],
-  visPolys: [], fogDirty: true, explored: {},
+  visPolys: [], visInfo: [], lights: [], needLight: false, fogDirty: true, explored: {},
+  templates: [], tplMode: false, tplShape: 'circle', tplDraft: null,
+  rulerMode: false, ruler: null, rulers: {},
   editingToken: null, pendingImport: null,
   tkImgBlob: null, tkImgClear: false,
 };
@@ -112,7 +114,9 @@ function makeLocalDB(){
 }
 
 /* ============ saneado de datos recibidos (defensa contra XSS de otros usuarios) ============ */
-const NUM_KEYS = { tokens: ['hp','hpMax','ac','atk','range','x','y','size','vision','xp','level','pb','attuned','save','acMisc'], rolls: ['total','ts'], maps: ['grid','w','h','gridOffX','gridOffY','wallOffX','wallOffY','defaultVision','createdAt'], games: ['createdAt'] };
+const NUM_KEYS = { tokens: ['hp','hpMax','ac','atk','range','x','y','size','vision','xp','level','pb','attuned','save','acMisc','lightBright','lightDim'], rolls: ['total','ts'], maps: ['grid','w','h','gridOffX','gridOffY','wallOffX','wallOffY','defaultVision','createdAt','darkness','lightScale','exploredResetAt'], games: ['createdAt'], templates: ['x','y','angle','len','dx','dy','ts'] };
+const HEX_RE = /^#[0-9a-f]{3,8}$/i;
+const num0 = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 function cleanDoc(t, d){
   if (!d || typeof d !== 'object') return d;
   (NUM_KEYS[t] || []).forEach(k => { if (d[k] != null && typeof d[k] !== 'number'){ const n = Number(d[k]); d[k] = Number.isFinite(n) ? n : 0; } });
@@ -122,13 +126,38 @@ function cleanDoc(t, d){
     if (d.inventory && Array.isArray(d.inventory.items)) d.inventory.items.forEach(it => { if (it && typeof it.qty !== 'number') it.qty = Number(it.qty) || 1; });
   }
   if (t === 'maps' && d.assetUrl && !/^(https:\/\/|blob:)/i.test(String(d.assetUrl))) d.assetUrl = '';
+  if (t === 'maps' && d.lights != null){
+    d.lights = Array.isArray(d.lights) ? d.lights.slice(0, 500).filter(l => l && typeof l === 'object').map(l => ({
+      x: num0(l.x), y: num0(l.y), bright: Math.max(0, num0(l.bright)), dim: Math.max(0, num0(l.dim)),
+      color: HEX_RE.test(String(l.color || '')) ? l.color : '#ffb35c', alpha: clamp(l.alpha == null ? 0.5 : num0(l.alpha), 0, 1)
+    })) : [];
+  }
+  if (t === 'tokens'){
+    if (d.darkvision != null && d.darkvision !== '') d.darkvision = Math.max(0, num0(d.darkvision));
+    if (d.lightColor != null && !HEX_RE.test(String(d.lightColor))) d.lightColor = '#ff9b42';
+  }
+  if (t === 'templates'){
+    if (!['circle', 'cone', 'line', 'cube'].includes(d.shape)) d.shape = 'circle';
+    if (!HEX_RE.test(String(d.color || ''))) d.color = '#c9a227';
+    d.name = String(d.name || '').slice(0, 40);
+  }
+  if (t === 'games' && d.audio && typeof d.audio === 'object'){
+    const a = d.audio;
+    a.tracks = Array.isArray(a.tracks) ? a.tracks.slice(0, 80).filter(x => x && x.id && /^(https:\/\/|blob:)/i.test(String(x.url || ''))).map(x => ({
+      id: String(x.id).slice(0, 60), name: String(x.name || 'Pista').slice(0, 80), url: String(x.url),
+      kind: x.kind === 'amb' ? 'amb' : 'music', vol: clamp(x.vol == null ? 0.7 : num0(x.vol), 0, 1), loop: x.loop !== false
+    })) : [];
+    const pl = {}; if (a.play && typeof a.play === 'object') Object.keys(a.play).slice(0, 20).forEach(k => { const v = a.play[k] || {}; pl[k] = { at: num0(v.at), vol: clamp(v.vol == null ? 0.7 : num0(v.vol), 0, 1) }; });
+    a.play = pl;
+  }
   if (t === 'games' && d.round && typeof d.round.n !== 'number') d.round.n = Number(d.round.n) || 1;
   return d;
 }
 
 /* ============ adaptador Supabase (tablas jsonb + realtime) ============ */
 function makeSupaDB(){
-  const tables = ['games', 'maps', 'tokens', 'rolls'];
+  const tables = ['games', 'maps', 'tokens', 'rolls', 'templates'];
+  const extra = ['templates'];   // tablas nuevas: canal aparte para que, si faltan en la BD, no rompan el resto
   const cache = {}; const colSubs = {}; const docSubs = {};
   tables.forEach(t => { cache[t] = new Map(); colSubs[t] = []; docSubs[t] = []; });
   function notify(t){
@@ -142,8 +171,10 @@ function makeSupaDB(){
     else if (error) console.warn('load', t, error.message);
   }
   const ch = SB.channel('db-changes');
+  const chX = SB.channel('db-changes-extra');
   tables.forEach(t => {
-    ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, payload => {
+    const ch0 = extra.includes(t) ? chX : ch;
+    ch0.on('postgres_changes', { event: '*', schema: 'public', table: t }, payload => {
       if (payload.eventType === 'DELETE'){ if (payload.old && payload.old.id != null) cache[t].delete(payload.old.id); }
       else if (payload.new && payload.new.id != null){ cache[t].set(payload.new.id, cleanDoc(t, payload.new.data)); }
       notify(t);
@@ -151,6 +182,7 @@ function makeSupaDB(){
   });
   let reloaded = false;
   ch.subscribe(status => { if (status === 'SUBSCRIBED' && !reloaded){ reloaded = true; tables.forEach(loadAll); } });
+  chX.subscribe(status => { if (status === 'SUBSCRIBED') extra.forEach(loadAll); });
   tables.forEach(loadAll);
   function split(path){ const i = path.indexOf('/'); return { t: path.slice(0, i), id: path.slice(i + 1) }; }
   function hiddenNow(t, id, v){
@@ -689,7 +721,8 @@ function leaveGame(){
   lsSet('vtt_game', null);
   if (GCH && SB){ try { SB.removeChannel(GCH); } catch(e){} }
   GCH = null; S.peers = []; renderPeers();
-  applyRole(); showLobby(); renderPanel(); needsDraw(); updateQR(); refreshLobby();
+  setRulerMode(false); setTplMode(false); S.rulers = {}; flushExploredSaves();
+  applyRole(); showLobby(); renderPanel(); needsDraw(); updateQR(); refreshLobby(); syncAudio();
 }
 $('#btnLeave').onclick = leaveGame;
 function updateGameBadge(){
@@ -712,6 +745,7 @@ function joinRoomFor(id){
       needsDraw();
     }
   });
+  ch.on('broadcast', { event: 'ruler' }, p => onRemoteRuler(p && p.payload));
   ch.on('presence', { event: 'sync' }, () => {
     try {
       const st = ch.presenceState();
@@ -770,17 +804,22 @@ function startSubscriptions(){
       const dmNow = !!(g && g.dmId === S.uid);
       if (dmNow !== S.isDM){ S.isDM = dmNow; applyRole(); }
     }
-    updateGameBadge(); syncFromGame(); renderLobby(); renderCombatBadge(); renderPanel(); needsDraw(); updateQR();
+    updateGameBadge(); syncFromGame(); renderLobby(); renderCombatBadge(); renderPanel(); needsDraw(); updateQR(); syncAudio();
   });
   DB.collection('maps').onSnapshot(snap => {
     const arr = snapDocs(snap); S.maps = {};
     arr.forEach(m => { S.maps[m.id] = m; });
+    checkExploredResets();
     S.fogDirty = true; loadActiveMedia(); renderPanel(); needsDraw();
   });
   DB.collection('tokens').onSnapshot(snap => {
     const arr = snapDocs(snap); S.tokens = {};
     arr.forEach(t => { S.tokens[t.id] = t; });
     S.fogDirty = true; renderPanel(); needsDraw();
+  });
+  DB.collection('templates').onSnapshot(snap => {
+    S.templates = snapDocs(snap);
+    needsDraw(); renderTplBar();
   });
   DB.collection('rolls').onSnapshot(snap => {
     const all = snapDocs(snap);
@@ -1027,54 +1066,105 @@ function getExplored(m){
   const h = Math.max(1, Math.round((S.media.h || 1) * EXPLORED_SCALE));
   if (!c || c.width !== w || c.height !== h){
     c = document.createElement('canvas'); c.width = w; c.height = h;
+    c._reset = m.exploredResetAt || 0;
     S.explored[key] = c;
+    loadExplored(m, c, key);
   }
   return c;
 }
 let fogReady = false;
+const seenCanvas = document.createElement('canvas');   // lo que se ve AHORA (línea de visión ∩ luz)
+const darkCanvas = document.createElement('canvas');   // capa de oscuridad con las luces recortadas
+const glowCanvas = document.createElement('canvas');   // color de las luces
+function polyPath(c, p){ if (p.length > 5){ c.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) c.lineTo(p[i], p[i + 1]); c.closePath(); } }
+function fillPoly(c, p){ c.beginPath(); polyPath(c, p); c.fill(); }
 function recomputeFog(){
-  S.fogDirty = false; S.visPolys = []; fogReady = false;
+  S.fogDirty = false; S.visPolys = []; S.visInfo = []; S.lights = []; S.needLight = false; fogReady = false;
   const m = activeMap(); if (!m || !S.media.w) return;
-  const remember = m.rememberExplored === true;
+  const remember = m.rememberExplored !== false;
   const segs = wallSegs(m, true);
   const g = gridOf(m);
-  const srcs = visionSources(m);
-  srcs.forEach(t => {
+  const dark = mapDarkness(m);
+  S.lights = dark > 0.01 ? mapLights(m, segs) : [];
+  S.needLight = dark >= DARK_SEE;
+  visionSources(m).forEach(t => {
     const vTiles = (t.vision == null ? (m.defaultVision || 12) : t.vision);
     const R = vTiles > 0 ? vTiles * g : Math.hypot(S.media.w, S.media.h);
-    S.visPolys.push(visPolygon(t.x, t.y, R, segs));
+    const poly = visPolygon(t.x, t.y, R, segs);
+    S.visPolys.push(poly);
+    S.visInfo.push({ x: t.x, y: t.y, poly, dv: darkvisionOf(t) * g });
   });
-  const ex = getExplored(m); const xc = ex.getContext('2d');
-  xc.save(); xc.scale(EXPLORED_SCALE, EXPLORED_SCALE);
-  xc.fillStyle = '#fff';
-  S.visPolys.forEach(p => { if (p.length > 5){ xc.beginPath(); xc.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) xc.lineTo(p[i], p[i + 1]); xc.closePath(); xc.fill(); } });
-  xc.restore();
   const fs = Math.min(1, 2000 / Math.max(S.media.w, S.media.h));
-  fogCanvas.width = Math.max(1, Math.round(S.media.w * fs));
-  fogCanvas.height = Math.max(1, Math.round(S.media.h * fs));
-  const fc = fogCanvas.getContext('2d');
-  fc.clearRect(0, 0, fogCanvas.width, fogCanvas.height);
-  fc.fillStyle = '#000';
-  fc.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
-  fc.globalCompositeOperation = 'destination-out';
-  if (remember){
-    // opcional: lo ya explorado queda en penumbra (sin tokens enemigos)
-    fc.globalAlpha = 0.35;
-    fc.drawImage(ex, 0, 0, fogCanvas.width, fogCanvas.height);
-    fc.globalAlpha = 1;
+  const W = Math.max(1, Math.round(S.media.w * fs)), H = Math.max(1, Math.round(S.media.h * fs));
+  [fogCanvas, seenCanvas, darkCanvas, glowCanvas].forEach(c => { if (c.width !== W || c.height !== H){ c.width = W; c.height = H; } });
+  // 1) Lo que se ve ahora
+  const sc = seenCanvas.getContext('2d');
+  sc.globalCompositeOperation = 'source-over'; sc.clearRect(0, 0, W, H);
+  sc.save(); sc.scale(fs, fs); sc.fillStyle = '#fff';
+  if (!S.needLight){
+    sc.beginPath(); S.visPolys.forEach(p => polyPath(sc, p)); sc.fill();
+  } else if (S.visPolys.length){
+    S.lights.forEach(l => fillPoly(sc, l.poly));
+    S.visInfo.forEach(v => { if (v.dv > 0){ sc.save(); sc.beginPath(); sc.arc(v.x, v.y, v.dv, 0, Math.PI * 2); sc.clip(); fillPoly(sc, v.poly); sc.restore(); } });
+    sc.globalCompositeOperation = 'destination-in';          // solo dentro de la línea de visión
+    sc.beginPath(); S.visPolys.forEach(p => polyPath(sc, p)); sc.fill();
+    sc.globalCompositeOperation = 'source-over';
   }
-  fc.save(); fc.scale(fs, fs);
-  S.visPolys.forEach(p => { if (p.length > 5){ fc.beginPath(); fc.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) fc.lineTo(p[i], p[i + 1]); fc.closePath(); fc.fill(); } });
-  fc.restore();
+  sc.restore();
+  // 2) Zonas exploradas (se guardan)
+  const ex = getExplored(m);
+  if (S.visPolys.length){
+    ex.getContext('2d').drawImage(seenCanvas, 0, 0, ex.width, ex.height);
+    if (playerFogActive() && remember) scheduleExploredSave(m.id);
+  }
+  // 3) Niebla
+  const fc = fogCanvas.getContext('2d');
+  fc.globalCompositeOperation = 'source-over'; fc.globalAlpha = 1;
+  fc.clearRect(0, 0, W, H); fc.fillStyle = '#000'; fc.fillRect(0, 0, W, H);
+  fc.globalCompositeOperation = 'destination-out';
+  if (remember){ fc.globalAlpha = 0.35; fc.drawImage(ex, 0, 0, W, H); fc.globalAlpha = 1; }
+  fc.drawImage(seenCanvas, 0, 0);
   fc.globalCompositeOperation = 'source-over';
+  // 4) Oscuridad y color de las luces
+  const dc = darkCanvas.getContext('2d'), gc = glowCanvas.getContext('2d');
+  dc.globalCompositeOperation = 'source-over'; dc.clearRect(0, 0, W, H);
+  gc.clearRect(0, 0, W, H);
+  if (dark > 0.01){
+    dc.fillStyle = 'rgba(0,0,0,' + (dark * 0.92).toFixed(3) + ')'; dc.fillRect(0, 0, W, H);
+    dc.save(); dc.scale(fs, fs); dc.globalCompositeOperation = 'destination-out';
+    gc.save(); gc.scale(fs, fs);
+    S.lights.forEach(l => {
+      const b = clamp(l.bright / l.dim, 0, 0.98);
+      dc.save(); dc.beginPath(); polyPath(dc, l.poly); dc.clip();
+      const gr = dc.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.dim);
+      gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(b, 'rgba(0,0,0,0.97)'); gr.addColorStop(Math.min(1, b + (1 - b) * 0.55), 'rgba(0,0,0,0.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      dc.fillStyle = gr; dc.fillRect(l.x - l.dim, l.y - l.dim, l.dim * 2, l.dim * 2); dc.restore();
+      gc.save(); gc.beginPath(); polyPath(gc, l.poly); gc.clip();
+      const gg = gc.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.dim), rgb = hexRgb(l.color), a = clamp(l.alpha, 0, 1) * 0.55;
+      gg.addColorStop(0, 'rgba(' + rgb + ',' + a + ')'); gg.addColorStop(1, 'rgba(' + rgb + ',0)');
+      gc.fillStyle = gg; gc.fillRect(l.x - l.dim, l.y - l.dim, l.dim * 2, l.dim * 2); gc.restore();
+    });
+    // visión en la oscuridad: ve en penumbra
+    S.visInfo.forEach(v => { if (v.dv > 0){ dc.save(); dc.beginPath(); dc.arc(v.x, v.y, v.dv, 0, Math.PI * 2); dc.clip(); dc.fillStyle = 'rgba(0,0,0,0.5)'; fillPoly(dc, v.poly); dc.restore(); } });
+    dc.restore(); gc.restore();
+  }
   fogReady = true;
+}
+function hexRgb(h){
+  h = String(h || '#ffb35c').replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  const n = parseInt(h.slice(0, 6), 16) || 0;
+  return ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255);
+}
+function litAt(x, y){ return S.lights.some(l => Math.hypot(x - l.x, y - l.y) <= l.dim && pointInPoly(x, y, l.poly)); }
+function pointSeen(x, y){
+  return S.visInfo.some(v => pointInPoly(x, y, v.poly) && (!S.needLight || Math.hypot(x - v.x, y - v.y) <= v.dv || litAt(x, y)));
 }
 function tokenVisibleToPlayers(t){
   if (t.type === 'pc') return !t.hidden;
   if (t.hidden) return false;
   if (!playerFogActive()) return true;
-  if (!S.visPolys.length) return false;
-  return S.visPolys.some(p => pointInPoly(t.x, t.y, p));
+  if (!S.visInfo.length) return false;
+  return pointSeen(t.x, t.y);
 }
 
 /* ============ imágenes de token ============ */
@@ -1147,6 +1237,12 @@ function draw(){
     if (seeAll || tokenVisibleToPlayers(t)) drawToken(t, m, seeAll && t.hidden);
   });
   drawDoors(m, g);
+  if (fogReady && mapDarkness(m) > 0.01){
+    ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.drawImage(glowCanvas, 0, 0, S.media.w, S.media.h); ctx.restore();
+    ctx.globalAlpha = (S.isDM && !S.viewAsPlayer) ? 0.55 : 1;
+    ctx.drawImage(darkCanvas, 0, 0, S.media.w, S.media.h);
+    ctx.globalAlpha = 1;
+  }
   if (fogOn){
     if (fogReady) ctx.drawImage(fogCanvas, 0, 0, S.media.w, S.media.h);
     else { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, S.media.w, S.media.h); }
@@ -1162,7 +1258,9 @@ function draw(){
     ctx.fillStyle = 'rgba(201,162,39,0.30)'; ctx.strokeStyle = 'rgba(255,214,90,0.9)'; ctx.lineWidth = 2 / S.cam.s;
     S.reach.forEach(c => { ctx.fillRect(c.x - half + 2, c.y - half + 2, g - 4, g - 4); ctx.strokeRect(c.x - half + 2, c.y - half + 2, g - 4, g - 4); });
   }
+  drawTemplates(m, g);
   toks.filter(t => t.type === 'pc' && (!t.hidden || seeAll)).forEach(t => drawToken(t, m, seeAll && t.hidden));
+  if (S.isDM && S.showWalls) drawLightMarkers(m, g);
   if (S.isDM && S.showWalls){
     ctx.lineWidth = 3 / S.cam.s;
     wallSegs(m, false).forEach(s => {
@@ -1197,6 +1295,7 @@ function draw(){
     ctx.beginPath(); ctx.arc(p.x, p.y, 10 + k * g * 1.6, 0, Math.PI * 2); ctx.stroke();
   });
   if (S.pings.length) needsDraw();
+  drawRulers(m, g);
   ctx.restore();
   sendCamToProjector();
 }
@@ -1311,11 +1410,14 @@ cv.addEventListener('pointerdown', e => {
   if (pointers.size === 2){
     const pts = [...pointers.values()];
     pinchStart = { d: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y), s: S.cam.s, cx: (pts[0].x + pts[1].x) / 2, cy: (pts[0].y + pts[1].y) / 2, camx: S.cam.x, camy: S.cam.y };
-    S.drag = null; S.pan = null;
+    S.drag = null; S.pan = null; S.tplDraft = null; if (S.ruler) S.ruler.down = false;
+    $('#distLabel').style.display = 'none';
     return;
   }
   const rect = cv.getBoundingClientRect();
   const p = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
+  if (S.rulerMode && activeMap()){ rulerDown(p); return; }
+  if (S.tplMode && activeMap()){ tplDown(p); return; }
   if (S.pickSpawn && S.isDM && !S.projector){
     const m = activeMap();
     if (m){
@@ -1324,6 +1426,16 @@ cv.addEventListener('pointerdown', e => {
     }
     setSpawnMode(false);
     return;
+  }
+  if (S.isDM && !S.projector && S.showWalls){
+    const li = hitLight(p.x, p.y);
+    if (li !== null){
+      const m = activeMap();
+      const lo = Object.assign({}, m.lightsOff || {});
+      if (lo[li]) delete lo[li]; else lo[li] = true;
+      DB.doc('maps/' + m.id).update({ lightsOff: lo }).then(() => toast(lo[li] ? '💡 Luz apagada' : '💡 Luz encendida')).catch(err => toast(err.message, true));
+      return;
+    }
   }
   if (S.isDM && !S.projector){
     const di = hitDoor(p.x, p.y);
@@ -1360,6 +1472,8 @@ cv.addEventListener('pointermove', e => {
     return;
   }
   const rect = cv.getBoundingClientRect();
+  if (S.rulerMode){ rulerMove(screenToMap(e.clientX - rect.left, e.clientY - rect.top), e.pointerType === 'mouse'); return; }
+  if (S.tplDraft){ tplMove(screenToMap(e.clientX - rect.left, e.clientY - rect.top), e.clientX - rect.left, e.clientY - rect.top); return; }
   if (S.drag){
     const p = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
     S.drag.curX = p.x; S.drag.curY = p.y; S.drag.moved = true;
@@ -1385,6 +1499,8 @@ function endPointer(e){
   if (pointers.size < 2) pinchStart = null;
   $('#distLabel').style.display = 'none';
   cv.classList.remove('dragging');
+  if (S.rulerMode && S.ruler && S.ruler.down){ rulerUp(e.type === 'pointerup'); return; }
+  if (S.tplDraft){ tplUp(e.type === 'pointerup'); return; }
   if (S.drag){
     const d = S.drag; S.drag = null;
     const t = S.tokens[d.tokenId]; const m = activeMap();
@@ -1410,6 +1526,7 @@ cv.addEventListener('wheel', e => {
   S.cam.s = ns; needsDraw();
 }, { passive: false });
 cv.addEventListener('dblclick', e => {
+  if (S.rulerMode || S.tplMode) return;
   const rect = cv.getBoundingClientRect();
   const p = screenToMap(e.clientX - rect.left, e.clientY - rect.top);
   S.pings.push({ x: p.x, y: p.y, t: performance.now() });
@@ -1942,6 +2059,10 @@ const HELP_KEYS_DM = [
   ['🌫', 'Niebla de guerra', 'Activa o desactiva la niebla: los jugadores solo ven lo que ve su personaje.'],
   ['🚩', 'Punto de aparición', 'Pulsa y toca el mapa: ahí aparecerá el grupo al llegar a este mapa. Al activar otro mapa, el grupo viaja solo a su 🚩.'],
   ['📱', 'QR de acceso', 'Muestra en el mapa un QR para que los jugadores entren desde el móvil.'],
+  ['📏', 'Regla', 'Toca o arrastra sobre el mapa para medir; cada toque añade un punto. Los jugadores ven tu medida.'],
+  ['📐', 'Plantillas de área', 'Círculo, cono, línea o cubo: arrastra desde el origen y se marcan las casillas afectadas. Toca una para borrarla.'],
+  ['💡', 'Luces', 'Con 🧱 activado ves las luces importadas de Dungeon Alchemist; tócalas para encenderlas o apagarlas. La oscuridad se ajusta en 🗺 Mapas.'],
+  ['🎵', 'Sonido', 'Sube música y ambientes y dales a ▶: suenan sincronizados en todos los dispositivos.'],
   ['☰', 'Panel lateral', 'Oculta o muestra el panel para ver el mapa más grande.'],
   ['👁', 'Ver como jugador', 'Previsualiza exactamente lo que ven los jugadores (niebla incluida).'],
   ['📽', 'Proyector', 'Abre una segunda ventana con la vista de jugador para la tele o el proyector.'],
@@ -1959,7 +2080,10 @@ const HELP_KEYS_PL = [
   ['🛡', 'Equipar', 'Toca una armadura, escudo, arma o accesorio del inventario y pulsa «Equipar».'],
   ['🧪', 'Usar', 'Toca un consumible (poción, ácido…) y pulsa «Beber» o «Usar contra…».'],
   ['⤢', 'Tamaño del mapa', 'En el móvil, alterna entre mapa grande, normal o pequeño.'],
-  ['＋ ⛶', 'Zoom y ajustar', 'Acerca, aleja o encaja el mapa. También pellizcando.']
+  ['＋ ⛶', 'Zoom y ajustar', 'Acerca, aleja o encaja el mapa. También pellizcando.'],
+  ['📏', 'Regla', 'Toca o arrastra sobre el mapa para medir distancias, con varios puntos. El resto del grupo ve tu medida.'],
+  ['📐', 'Plantillas de área', 'Para conjuros como Bola de fuego: elige forma y arrastra desde el origen. Toca la tuya para borrarla.'],
+  ['🔊', 'Sonido', 'La música que pone el DM. Si sale «Activar sonido», tócalo; en 🎵 Sonido ajustas tu volumen.']
 ];
 function helpKeys(list){ return list.map(([k, t, d]) => '<div class="help-key"><div class="k">' + esc(k) + '</div><div><b>' + esc(t) + '</b><span>' + esc(d) + '</span></div></div>').join(''); }
 function helpSections(){
@@ -2028,7 +2152,8 @@ function tourSteps(){
     { sel: '#tabs button[data-tab="tokens"]', t: '2 · Crea los tokens', d: 'Crea los PJ (tipo PJ, con clase y raza) y los monstruos. Los monstruos ocultos no los ven los jugadores. También aquí das objetos al grupo.', pre: tab('tokens') },
     { sel: '#tabs button[data-tab="init"]', t: '3 · Rondas y combate', d: 'Abre una ronda: cada jugador hace una acción (mover, atacar o pasar) desde su móvil. Cuando acaben todos, pasa a la siguiente.', pre: tab('init') },
     { sel: '#stage', t: 'El mapa', d: 'Arrastra el fondo para desplazarte, rueda o pellizco para el zoom. Arrastra un token para moverlo; doble clic para editarlo.' },
-    { sel: '#stageTools', t: 'Herramientas del mapa', d: 'Zoom, ajustar, rejilla, muros (🧱) y niebla de guerra (🌫).' },
+    { sel: '#stageTools', t: 'Herramientas del mapa', d: 'Zoom, ajustar, rejilla, regla (📏), plantillas de área (📐), muros y luces (🧱) y niebla de guerra (🌫).' },
+    { sel: '#tabAudioBtn', t: 'Música y ambiente', d: 'Sube pistas y dales a ▶: suenan a la vez en los dispositivos de todos.', pre: tab('audio') },
     { sel: '#btnQR', t: 'QR para los jugadores', d: 'Muestra un QR en el mapa. Los jugadores lo escanean con el móvil y entran directamente a elegir su personaje.' },
     { sel: '#btnViewAs', t: 'Ver como jugador', d: 'Comprueba lo que ven los jugadores, niebla incluida.' },
     { sel: '#btnProjector', t: 'Proyector', d: 'Abre una segunda ventana con la vista de jugador para la tele o el proyector.' },
@@ -2044,7 +2169,8 @@ function tourSteps(){
     { sel: '#stage', t: 'El mapa', d: 'Solo ves lo que ve tu personaje. Pellizca para hacer zoom y arrastra para moverte por el mapa.' },
     { sel: '#btnMapSize', t: 'Tamaño del mapa', d: 'En el móvil, alterna entre mapa grande, normal o pequeño.' },
     { sel: '#btnHideMap', t: 'Ocultar el mapa', d: 'En el móvil, quita el mapa para ver la ficha y los botones a pantalla completa. Vuelve a pulsarlo para verlo; al moverte se muestra solo.' },
-    { sel: '#tabs button[data-tab="dice"]', t: 'Dados y chat', d: 'Tira cualquier dado y escribe mensajes al grupo.' }
+    { sel: '#tabs button[data-tab="dice"]', t: 'Dados y chat', d: 'Tira cualquier dado y escribe mensajes al grupo.' },
+    { sel: '#btnRuler', t: 'Medir y áreas', d: '📏 mide distancias tocando el mapa y 📐 coloca áreas de conjuros (cono, círculo, línea, cubo).' }
   ]);
 }
 const tour = { steps: [], i: 0 };
@@ -2215,6 +2341,7 @@ function renderPanel(){
   else if (S.tab === 'pj') renderPjPanel(p);
   else if (S.tab === 'tokens') renderTokensPanel(p);
   else if (S.tab === 'init') renderInitPanel(p);
+  else if (S.tab === 'audio') renderAudioPanel(p);
   else renderDicePanel(p);
 }
 
@@ -2254,6 +2381,7 @@ function renderMapsPanel(p){
       '<div class="row between"><label>Niebla de guerra</label><button class="small" id="setFog">' + (m.fog === false ? 'Activar' : 'Desactivar') + '</button></div>' +
       '<div class="row between" style="margin-top:6px"><label>Rejilla (px/casilla)</label><input type="number" id="setGrid" value="' + (m.grid || 70) + '" min="8"></div>' +
       '<div class="row between" style="margin-top:6px"><label>Visión por defecto (casillas)</label><input type="number" id="setVision" value="' + (m.defaultVision == null ? 12 : m.defaultVision) + '" min="0"></div>';
+
     if (S.showWalls){
       html += '<div class="section-title">Calibrar muros (🧱 activado)</div>' +
         '<div class="mini" style="margin-bottom:6px">Si los muros no coinciden con el dibujo, muévelos:</div>' +
@@ -2262,8 +2390,13 @@ function renderMapsPanel(p){
         '<div class="row" style="margin-top:4px"><button class="small cal" data-x="0" data-y="-' + (m.grid || 70) + '">↑1 casilla</button><button class="small cal" data-x="0" data-y="' + (m.grid || 70) + '">↓1 casilla</button><button class="small" id="calReset">Reiniciar</button><span class="mini">off: ' + (m.wallOffX || 0) + ',' + (m.wallOffY || 0) + '</span></div>';
     }
     html += '<div class="row between" style="margin-top:6px"><label>Visión compartida (todos ven lo de todos los PJs)</label><button class="small" id="setShared">' + (m.sharedVision === true ? 'Sí' : 'No') + '</button></div>';
-    html += '<div class="row between" style="margin-top:6px"><label>Recordar zonas exploradas (penumbra)</label><button class="small" id="setRemember">' + (m.rememberExplored === true ? 'Sí' : 'No') + '</button></div>' +
+    html += '<div class="row between" style="margin-top:6px"><label>Recordar zonas exploradas (se guardan para cada jugador)</label><button class="small" id="setRemember">' + (m.rememberExplored !== false ? 'Sí' : 'No') + '</button></div>' +
       '<div class="row" style="margin-top:8px"><button class="small" id="resetExplored">🌫 Reiniciar zonas exploradas</button></div></div>';
+    html += '<div class="section-title">💡 Luz y oscuridad</div><div class="card">' +
+      '<div class="row between"><label>Oscuridad del mapa</label><span class="row"><input type="range" id="setDark" min="0" max="100" step="5" value="' + Math.round(mapDarkness(m) * 100) + '" style="width:120px"><b id="setDarkV" style="min-width:38px; text-align:right">' + Math.round(mapDarkness(m) * 100) + '%</b></span></div>' +
+      '<div class="mini" style="margin-top:4px">Desde el ' + Math.round(DARK_SEE * 100) + '% los PJ solo ven lo iluminado o con visión en la oscuridad (elfos, enanos, gnomos, semielfos, semiorcos y tiflin: 12 casillas).</div>' +
+      '<div class="row between" style="margin-top:8px"><label>Luces del mapa: ' + (m.lights || []).length + (Object.keys(m.lightsOff || {}).length ? ' (' + Object.keys(m.lightsOff || {}).length + ' apagadas)' : '') + ' · tamaño ×</label><input type="number" id="setLightScale" step="0.25" min="0.25" value="' + (m.lightScale > 0 ? m.lightScale : 1) + '" style="width:70px"></div>' +
+      '<div class="mini" style="margin-top:4px">' + ((m.lights || []).length ? 'Con 🧱 activado verás las luces (💡): tócalas para encenderlas o apagarlas. Si el radio no cuadra con el dibujo, cambia el tamaño.' : 'Este mapa no trae luces. Reimpórtalo desde Dungeon Alchemist (export de Foundry o .dd2vtt) para traerlas, o da antorchas a los tokens.') + '</div></div>';
   }
   p.innerHTML = html;
   $('#btnImport').onclick = openImport;
@@ -2308,6 +2441,7 @@ function renderMapsPanel(p){
         if (t.type === 'pc') await DB.doc('tokens/' + t.id).update({ mapId: null }).catch(() => {});
         else await DB.doc('tokens/' + t.id).delete().catch(() => {});
       }
+      for (const tp of S.templates.filter(tp => tp.mapId === id)) await DB.doc('templates/' + tp.id).delete().catch(() => {});
       if (S.activeMapId === id) saveGame({ activeMapId: null });
       DB.doc('maps/' + id).delete().catch(e => toast(e.message, true));
       const n = toks.filter(t => t.type === 'pc').length;
@@ -2323,11 +2457,15 @@ function renderMapsPanel(p){
     });
     const cr = $('#calReset'); if (cr) cr.onclick = () => DB.doc('maps/' + m.id).update({ wallOffX: 0, wallOffY: 0 }).catch(() => {});
     $('#setShared').onclick = () => DB.doc('maps/' + m.id).update({ sharedVision: m.sharedVision !== true }).catch(() => {});
-    $('#setRemember').onclick =() => DB.doc('maps/' + m.id).update({ rememberExplored: m.rememberExplored !== true }).catch(() => {});
-    $('#resetExplored').onclick = () => {
-      delete S.explored[(S.gameId || 'x') + ':' + m.id];
-      S.fogDirty = true; needsDraw(); toast('Zonas exploradas reiniciadas');
-    };
+    $('#setRemember').onclick = () => DB.doc('maps/' + m.id).update({ rememberExplored: m.rememberExplored === false }).catch(() => {});
+    $('#resetExplored').onclick = e => armConfirm(e.currentTarget, () => {
+      DB.doc('maps/' + m.id).update({ exploredResetAt: Date.now() })
+        .then(() => toast('Zonas exploradas reiniciadas para todos'))
+        .catch(err => toast(err.message, true));
+    });
+    $('#setDark').oninput = e => { $('#setDarkV').textContent = e.target.value + '%'; };
+    $('#setDark').onchange = e => DB.doc('maps/' + m.id).update({ darkness: clamp((parseInt(e.target.value) || 0) / 100, 0, 1) }).catch(() => {});
+    $('#setLightScale').onchange = e => DB.doc('maps/' + m.id).update({ lightScale: Math.max(0.25, parseFloat(e.target.value) || 1) }).catch(() => {});
   }
 }
 
@@ -2514,6 +2652,8 @@ function openTokenModal(id){
   $('#tkHp').value = t ? (t.hp || 0) : 10;
   $('#tkHpMax').value = t ? (t.hpMax || 0) : 10;
   $('#tkVision').value = t ? (t.vision == null ? 12 : t.vision) : 12;
+  $('#tkDv').value = t && t.darkvision != null && t.darkvision !== '' ? t.darkvision : '';
+  $('#tkLight').value = t && t.lightKind && LIGHT_PRESETS[t.lightKind] ? t.lightKind : '';
   $('#tkCls').value = t ? (t.cls || '') : '';
   $('#tkRace').value = t ? (t.race || '') : '';
   $('#tkAc').value = t ? (t.ac || 12) : 12;
@@ -2567,6 +2707,7 @@ $('#tkSave').onclick = async () => {
       size: parseInt($('#tkSize').value) || 1,
       hp: parseInt($('#tkHp').value) || 0, hpMax: parseInt($('#tkHpMax').value) || 0,
       vision: parseInt($('#tkVision').value), hidden: old ? !!old.hidden : ($('#tkType').value === 'monster'),
+      darkvision: $('#tkDv').value === '' ? null : Math.max(0, parseInt($('#tkDv').value) || 0),
       imgUrl,
       x: center.x, y: center.y, createdAt: old ? (old.createdAt || Date.now()) : Date.now()
     };
@@ -2598,6 +2739,8 @@ $('#tkSave').onclick = async () => {
       });
     }
     if (old && old.ownerId && t.type === 'pc'){ t.ownerId = old.ownerId; t.ownerName = old.ownerName || ''; }
+    const lp = LIGHT_PRESETS[$('#tkLight').value];
+    if (lp) Object.assign(t, { lightKind: $('#tkLight').value, lightBright: lp.b, lightDim: lp.d, lightColor: lp.c });
     await DB.doc('tokens/' + id).set(t);
     if (t.type === 'pc' && !S.localMode){ try { await rpc('token_recalc', { tid: id }); } catch(e){ toast('CA: ' + e.message, true); } }
     $('#tokenModal').classList.remove('open'); S.fogDirty = true;
@@ -2916,7 +3059,7 @@ async function handleFiles(files){
   $('#impGridRow').style.display = parsed.needsGrid ? 'flex' : 'none';
   $('#importInfo').innerHTML = '<b>' + esc(parsed.name) + '</b><div class="mini">' +
     (parsed.source || 'imagen suelta') + ' · ' + dims.w + '×' + dims.h + 'px · ' +
-    parsed.walls.length + ' muros · ' + parsed.walls.filter(w => w.door).length + ' puertas · rejilla ' + (parsed.grid || '¿?') + 'px' +
+    parsed.walls.length + ' muros · ' + parsed.walls.filter(w => w.door).length + ' puertas · ' + (parsed.lights || []).length + ' luces · rejilla ' + (parsed.grid || '¿?') + 'px' +
     (mediaType === 'video' ? ' · 🎬 vídeo' : '') + '</div>';
   $('#importSummary').style.display = '';
   $('#importCloseRow').style.display = 'none';
@@ -2956,13 +3099,25 @@ function parseFoundry(j){
     offY = Math.ceil(j.height * padding / grid) * grid;
   }
   const doorStates = {};
+  const dist = Number((j.grid && typeof j.grid === 'object' && j.grid.distance) || j.gridDistance) || 5;
+  const lights = (j.lights || []).map(l => {
+    const c = (l && l.config) || l || {};
+    const bright = Number(c.bright != null ? c.bright : l.bright) || 0, dim = Number(c.dim != null ? c.dim : l.dim) || 0;
+    if (!(Math.max(bright, dim) > 0) || l.hidden) return null;
+    const col = c.color || l.tintColor;
+    return { x: (Number(l.x) || 0) - offX, y: (Number(l.y) || 0) - offY, bright: Math.max(0, bright) / dist, dim: Math.max(bright, dim) / dist,
+      color: HEX_RE.test(String(col || '')) ? col : '#ffb35c', alpha: clamp(Number(c.alpha != null ? c.alpha : l.tintAlpha) || 0.5, 0, 1) };
+  }).filter(Boolean);
+  const env = j.environment || {};
+  let darkness = Number(j.darkness != null ? j.darkness : env.darknessLevel) || 0;
+  if (lights.length && darkness < 0.05) darkness = 0.75;   // si trae luces pero escena clara: que se noten
   const walls = (j.walls || []).map((w, i) => {
     const c = w.c || [w.x1, w.y1, w.x2, w.y2];
     const sightRaw = (w.sight != null) ? w.sight : ((w.sense != null) ? w.sense : 20);
     if (w.door && (w.ds === 1)) doorStates[i] = true;
     return { x1: c[0] - offX, y1: c[1] - offY, x2: c[2] - offX, y2: c[3] - offY, door: w.door ? 1 : 0, sight: sightRaw === 0 ? 0 : 1 };
   });
-  return { name: j.name || 'Mapa Foundry', grid, walls, doorStates, needsGrid: false, source: 'Export de Foundry (Dungeon Alchemist)' };
+  return { name: j.name || 'Mapa Foundry', grid, walls, doorStates, lights, darkness, needsGrid: false, source: 'Export de Foundry (Dungeon Alchemist)' };
 }
 function parseUVTT(j){
   const ppg = j.resolution.pixels_per_grid || 70;
@@ -2992,7 +3147,14 @@ function parseUVTT(j){
       if (p.closed === false) doorStates[idx] = true;
     }
   });
-  return { name: j.name || 'Mapa UVTT', grid: ppg, walls, doorStates, needsGrid: false, source: 'Universal VTT', _imageB64: j.image || null };
+  const lights = (j.lights || []).map(l => {
+    const pos = l.position || {}, r = Number(l.range) || 0;
+    if (!(r > 0)) return null;
+    const hx = String(l.color || '').replace('#', '');
+    const col = /^[0-9a-f]{8}$/i.test(hx) ? '#' + hx.slice(2) : /^[0-9a-f]{6}$/i.test(hx) ? '#' + hx : '#ffb35c';
+    return { x: ((Number(pos.x) || 0) - origin.x) * ppg, y: ((Number(pos.y) || 0) - origin.y) * ppg, bright: r / 2, dim: r, color: col, alpha: clamp(Number(l.intensity) || 0.5, 0, 1) };
+  }).filter(Boolean);
+  return { name: j.name || 'Mapa UVTT', grid: ppg, walls, doorStates, lights, darkness: lights.length ? 0.75 : 0, needsGrid: false, source: 'Universal VTT', _imageB64: j.image || null };
 }
 $('#impCreate').onclick = async () => {
   const pi = S.pendingImport; if (!pi) return;
@@ -3019,6 +3181,7 @@ $('#impCreate').onclick = async () => {
       wallOffX: 0, wallOffY: 0,
       walls: pi.parsed.walls, doorStates: pi.parsed.doorStates || {},
       fog: pi.parsed.walls.length ? true : false,
+      lights: pi.parsed.lights || [], darkness: pi.parsed.darkness || 0, rememberExplored: true,
       defaultVision: 12, showGrid: true, createdAt: Date.now()
     };
     await DB.doc('maps/' + id).set(doc);
@@ -3030,6 +3193,510 @@ $('#impCreate').onclick = async () => {
   }
   btn.disabled = false; prog.textContent = '';
 };
+
+/* ============ luces y visión en la oscuridad ============ */
+const DARK_SEE = 0.55;   // desde esta oscuridad hace falta luz o visión en la oscuridad para ver
+const DV_RACES = { 'Elfo': 12, 'Enano': 12, 'Gnomo': 12, 'Semielfo': 12, 'Semiorco': 12, 'Tiflin': 12 };
+const LIGHT_PRESETS = {
+  torch:   { n: 'Antorcha',    b: 4, d: 8,  c: '#ff9b42' },
+  lantern: { n: 'Linterna',    b: 6, d: 12, c: '#ffc66b' },
+  candle:  { n: 'Vela',        b: 1, d: 2,  c: '#ffb35c' },
+  spell:   { n: 'Conjuro Luz', b: 4, d: 8,  c: '#e6f0ff' }
+};
+function mapDarkness(m){ return clamp(Number(m && m.darkness) || 0, 0, 1); }
+function darkvisionOf(t){
+  if (t.darkvision != null && t.darkvision !== '') return Math.max(0, Number(t.darkvision) || 0);
+  return DV_RACES[t.race] || 0;
+}
+let lightCache = { key: null, list: [] };
+function mapLights(m, segs){
+  const g = gridOf(m), k = m.lightScale > 0 ? m.lightScale : 1;
+  const offX = m.wallOffX || 0, offY = m.wallOffY || 0, off = m.lightsOff || {};
+  const key = [m.id, JSON.stringify(m.doorStates || {}), offX, offY, JSON.stringify(off), k, g, (m.lights || []).length, S.media.w, S.media.h].join('|');
+  if (lightCache.key !== key){
+    lightCache = { key, list: (m.lights || []).map((l, i) => {
+      if (off[i]) return null;
+      const dim = Math.max(l.dim, l.bright) * g * k;
+      if (!(dim > 0)) return null;
+      const x = l.x + offX, y = l.y + offY;
+      return { x, y, bright: l.bright * g * k, dim, color: l.color || '#ffb35c', alpha: l.alpha == null ? 0.5 : l.alpha, poly: visPolygon(x, y, dim, segs) };
+    }).filter(Boolean) };
+  }
+  const out = lightCache.list.slice();
+  gameTokens(m.id).forEach(t => {
+    if (t.hidden || !(t.lightDim > 0)) return;
+    const dim = Math.max(t.lightDim, t.lightBright || 0) * g;
+    out.push({ x: t.x, y: t.y, bright: (t.lightBright || 0) * g, dim, color: t.lightColor || '#ff9b42', alpha: 0.45, poly: visPolygon(t.x, t.y, dim, segs) });
+  });
+  return out;
+}
+function drawLightMarkers(m, g){
+  const off = m.lightsOff || {}, k = m.lightScale > 0 ? m.lightScale : 1;
+  (m.lights || []).forEach((l, i) => {
+    const x = l.x + (m.wallOffX || 0), y = l.y + (m.wallOffY || 0), on = !off[i];
+    ctx.save();
+    ctx.strokeStyle = on ? 'rgba(255,200,90,.55)' : 'rgba(160,160,160,.35)'; ctx.lineWidth = 1.5 / S.cam.s; ctx.setLineDash([5 / S.cam.s, 5 / S.cam.s]);
+    ctx.beginPath(); ctx.arc(x, y, Math.max(l.dim, l.bright) * g * k, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    const r = Math.max(10, g * 0.18);
+    ctx.fillStyle = on ? 'rgba(201,162,39,.95)' : 'rgba(60,60,60,.9)'; ctx.strokeStyle = '#0008'; ctx.lineWidth = 2 / S.cam.s;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.font = (r * 1.1) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.globalAlpha = on ? 1 : 0.5; ctx.fillText('💡', x, y + 1);
+    ctx.restore();
+  });
+}
+function hitLight(mx, my){
+  const m = activeMap(); if (!m) return null;
+  const g = gridOf(m), ls = m.lights || [];
+  for (let i = 0; i < ls.length; i++){
+    const x = ls[i].x + (m.wallOffX || 0), y = ls[i].y + (m.wallOffY || 0);
+    if (Math.hypot(mx - x, my - y) <= Math.max(12, g * 0.22)) return i;
+  }
+  return null;
+}
+
+/* ============ zonas exploradas guardadas (por jugador y mapa) ============ */
+const expSave = { timers: {} };
+function expLsKey(mapId){ return 'vtt_exp_' + S.uid + '_' + mapId; }
+async function loadExplored(m, c, key){
+  const apply = rec => {
+    if (!rec || typeof rec.png !== 'string' || !rec.png.startsWith('data:image/png;base64,')) return;
+    if ((rec.ts || 0) < (m.exploredResetAt || 0)) return;
+    const img = new Image();
+    img.onload = () => { if (S.explored[key] !== c) return; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); S.fogDirty = true; needsDraw(); };
+    img.src = rec.png;
+  };
+  apply(lsGet(expLsKey(m.id)));
+  if (S.localMode || !SB) return;
+  try {
+    const { data, error } = await SB.from('explored').select('data').eq('user_id', S.uid).eq('map_id', m.id).maybeSingle();
+    if (!error && data) apply(data.data);
+  } catch(e){}
+}
+function scheduleExploredSave(mapId){
+  clearTimeout(expSave.timers[mapId]);
+  expSave.timers[mapId] = setTimeout(() => saveExplored(mapId), 4000);
+}
+function saveExplored(mapId){
+  delete expSave.timers[mapId];
+  const c = S.explored[(S.gameId || 'x') + ':' + mapId];
+  if (!c || !S.maps[mapId]) return;
+  let png; try { png = c.toDataURL('image/png'); } catch(e){ return; }
+  if (png.length > 900000) return;     // mapa enorme: no se guarda
+  const rec = { ts: Date.now(), png };
+  lsSet(expLsKey(mapId), rec);
+  if (!S.localMode && SB && S.gameId){
+    SB.from('explored').upsert({ user_id: S.uid, map_id: mapId, game_id: S.gameId, data: rec }).then(({ error }) => { if (error) console.warn('explorado', error.message); });
+  }
+}
+function flushExploredSaves(){ Object.keys(expSave.timers).forEach(id => { clearTimeout(expSave.timers[id]); saveExplored(id); }); }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushExploredSaves(); });
+window.addEventListener('pagehide', flushExploredSaves);
+function checkExploredResets(){
+  Object.keys(S.explored).forEach(key => {
+    const mapId = key.slice(key.indexOf(':') + 1), m = S.maps[mapId], c = S.explored[key];
+    if (!m || !c) return;
+    const r = m.exploredResetAt || 0;
+    if (r > (c._reset || 0)){
+      c._reset = r;
+      c.getContext('2d').clearRect(0, 0, c.width, c.height);
+      clearTimeout(expSave.timers[mapId]); delete expSave.timers[mapId];
+      lsSet(expLsKey(mapId), null);
+      S.fogDirty = true;
+    }
+  });
+}
+
+/* ============ regla de medir (varios puntos, la ven todos) ============ */
+function cellCenter(m, p){
+  const g = gridOf(m), ox = m.gridOffX || 0, oy = m.gridOffY || 0;
+  return { x: ox + (Math.floor((p.x - ox) / g) + 0.5) * g, y: oy + (Math.floor((p.y - oy) / g) + 0.5) * g };
+}
+function gridVertex(m, p){
+  const g = gridOf(m), ox = m.gridOffX || 0, oy = m.gridOffY || 0;
+  return { x: ox + Math.round((p.x - ox) / g) * g, y: oy + Math.round((p.y - oy) / g) * g };
+}
+function segCells(a, b, g){ return Math.max(Math.abs(Math.round((b.x - a.x) / g)), Math.abs(Math.round((b.y - a.y) / g))); }
+function rulerPts(r){
+  const pts = r.pts.slice();
+  if (r.cur){ const l = pts[pts.length - 1]; if (!l || l.x !== r.cur.x || l.y !== r.cur.y) pts.push(r.cur); }
+  return pts;
+}
+function rulerFeet(pts, g){ let c = 0; for (let i = 1; i < pts.length; i++) c += segCells(pts[i - 1], pts[i], g); return c * 5; }
+function setRulerMode(on){
+  S.rulerMode = !!on;
+  if (on) setTplMode(false);
+  if (!on && S.ruler){ S.ruler = null; rulerSend(true); }
+  $('#btnRuler').classList.toggle('on', S.rulerMode);
+  $('#rulerBar').classList.toggle('open', S.rulerMode);
+  cv.style.cursor = S.rulerMode ? 'crosshair' : '';
+  updateRulerBar(); needsDraw();
+}
+function updateRulerBar(){
+  const m = activeMap(), r = S.ruler;
+  if (!m || !r){ $('#rulerTotal').textContent = 'Toca el mapa para medir'; return; }
+  const pts = rulerPts(r), ft = rulerFeet(pts, gridOf(m));
+  $('#rulerTotal').textContent = ft + ' ft · ' + (ft / 5) + ' casillas' + (pts.length > 2 ? ' · ' + (pts.length - 1) + ' tramos' : '');
+}
+function rulerDown(p){
+  const m = activeMap(), c = cellCenter(m, p);
+  if (!S.ruler) S.ruler = { pts: [c], cur: c, down: true };
+  else { S.ruler.cur = c; S.ruler.down = true; }
+  updateRulerBar(); rulerSend(); needsDraw();
+}
+function rulerMove(p, hover){
+  const r = S.ruler, m = activeMap();
+  if (!r || !m || !(r.down || hover)) return;
+  const c = cellCenter(m, p);
+  if (r.cur && r.cur.x === c.x && r.cur.y === c.y) return;
+  r.cur = c; updateRulerBar(); rulerSend(); needsDraw();
+}
+function rulerUp(ok){
+  const r = S.ruler; if (!r) return;
+  r.down = false;
+  const last = r.pts[r.pts.length - 1];
+  if (ok && r.cur && (r.cur.x !== last.x || r.cur.y !== last.y) && r.pts.length < 40) r.pts.push({ x: r.cur.x, y: r.cur.y });
+  updateRulerBar(); rulerSend(true); needsDraw();
+}
+let rulerT = 0, rulerTimer = null;
+function rulerSend(force){
+  if (!GCH || S.projector) return;
+  const go = () => {
+    rulerT = performance.now(); rulerTimer = null;
+    const m = activeMap(), r = S.ruler;
+    try { GCH.send({ type: 'broadcast', event: 'ruler', payload: { uid: S.uid, name: myName(), mapId: m ? m.id : null, color: myColor(), pts: r ? rulerPts(r).map(p => [Math.round(p.x), Math.round(p.y)]) : [] } }); } catch(e){}
+  };
+  if (force || performance.now() - rulerT > 90){ clearTimeout(rulerTimer); go(); }
+  else if (!rulerTimer) rulerTimer = setTimeout(go, 90);
+}
+function onRemoteRuler(d){
+  if (!d || typeof d.uid !== 'string') return;
+  const pts = Array.isArray(d.pts) ? d.pts.slice(0, 41).filter(p => Array.isArray(p) && Number.isFinite(+p[0]) && Number.isFinite(+p[1])).map(p => ({ x: +p[0], y: +p[1] })) : [];
+  if (pts.length < 1) delete S.rulers[d.uid];
+  else S.rulers[d.uid] = { name: String(d.name || 'Aventurero').slice(0, 30), mapId: d.mapId, color: HEX_RE.test(String(d.color || '')) ? d.color : '#7fb3d5', pts, t: performance.now() };
+  needsDraw();
+}
+function myColor(){ const pc = myPC(); return S.isDM ? '#c9a227' : (pc && pc.color) || '#7fb3d5'; }
+function drawRulers(m, g){
+  const now = performance.now();
+  Object.keys(S.rulers).forEach(k => { if (now - S.rulers[k].t > 20000) delete S.rulers[k]; });
+  Object.values(S.rulers).forEach(r => { if (r.mapId === m.id) drawRuler(r.pts, g, r.color, r.name); });
+  if (S.ruler) drawRuler(rulerPts(S.ruler), g, myColor(), null);
+}
+function drawRuler(pts, g, color, who){
+  if (!pts.length) return;
+  const s = S.cam.s;
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 7 / s;
+  ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); pts.slice(1).forEach(p => ctx.lineTo(p.x, p.y)); ctx.stroke();
+  ctx.strokeStyle = color; ctx.lineWidth = 3.5 / s;
+  ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); pts.slice(1).forEach(p => ctx.lineTo(p.x, p.y)); ctx.stroke();
+  let acc = 0;
+  pts.forEach((p, i) => {
+    if (i) acc += segCells(pts[i - 1], p, g) * 5;
+    ctx.fillStyle = color; ctx.strokeStyle = '#000'; ctx.lineWidth = 2 / s;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 6 / s, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    if (i){
+      const last = i === pts.length - 1;
+      const txt = acc + ' ft' + (last && who ? ' · ' + who : '');
+      ctx.font = '700 ' + (last ? 15 : 12) / s + 'px Inter'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      const w = ctx.measureText(txt).width, pad = 5 / s, h = (last ? 22 : 18) / s;
+      ctx.fillStyle = 'rgba(0,0,0,.8)'; ctx.fillRect(p.x + 10 / s, p.y - h / 2, w + pad * 2, h);
+      ctx.fillStyle = last ? '#fff' : '#ddd'; ctx.fillText(txt, p.x + 10 / s + pad, p.y + 1 / s);
+    }
+  });
+  ctx.restore();
+}
+$('#btnRuler').onclick = () => setRulerMode(!S.rulerMode);
+$('#rulerExit').onclick = () => setRulerMode(false);
+$('#rulerClear').onclick = () => { S.ruler = null; updateRulerBar(); rulerSend(true); needsDraw(); };
+$('#rulerUndo').onclick = () => {
+  const r = S.ruler; if (!r) return;
+  r.cur = null;
+  if (r.pts.length > 1) r.pts.pop(); else S.ruler = null;
+  updateRulerBar(); rulerSend(true); needsDraw();
+};
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || /input|textarea|select/i.test((e.target && e.target.tagName) || '')) return;
+  if (S.rulerMode){ if (S.ruler){ S.ruler = null; updateRulerBar(); rulerSend(true); needsDraw(); } else setRulerMode(false); }
+  else if (S.tplMode) setTplMode(false);
+});
+
+/* ============ plantillas de área ============ */
+const TPL_NAMES = { circle: 'Círculo', cone: 'Cono', line: 'Línea', cube: 'Cubo' };
+const CONE_HALF = Math.atan(0.5);   // 5e: el cono es tan ancho como largo
+function setTplMode(on){
+  S.tplMode = !!on;
+  if (on) setRulerMode(false);
+  S.tplDraft = null;
+  $('#btnTpl').classList.toggle('on', S.tplMode);
+  $('#tplBar').classList.toggle('open', S.tplMode);
+  cv.style.cursor = S.tplMode ? 'crosshair' : '';
+  renderTplBar(); needsDraw();
+}
+function canEditTpl(t){ return S.isDM || t.uid === S.uid; }
+function mapTemplates(m){ return S.templates.filter(t => t.mapId === m.id && (t.gameId || null) === (S.gameId || null)); }
+function renderTplBar(){
+  $$('#tplBar .tpl-shapes button').forEach(b => b.classList.toggle('on', b.dataset.shape === S.tplShape));
+  const m = activeMap();
+  const n = m ? mapTemplates(m).filter(canEditTpl).length : 0;
+  const cb = $('#tplClear');
+  cb.textContent = '🗑' + (n ? ' ' + n : '');
+  cb.title = S.isDM ? 'Borrar todas las plantillas de este mapa' : 'Borrar tus plantillas';
+  cb.disabled = !n;
+  $('#tplHint').textContent = S.tplDraft ? '' : TPL_NAMES[S.tplShape] + ': arrastra desde el origen';
+}
+$$('#tplBar .tpl-shapes button').forEach(b => b.onclick = () => { S.tplShape = b.dataset.shape; renderTplBar(); });
+$('#btnTpl').onclick = () => setTplMode(!S.tplMode);
+$('#tplExit').onclick = () => setTplMode(false);
+$('#tplClear').onclick = e => armConfirm(e.currentTarget, async () => {
+  const m = activeMap(); if (!m) return;
+  const list = mapTemplates(m).filter(canEditTpl);
+  for (const t of list) await DB.doc('templates/' + t.id).delete().catch(err => toast(err.message, true));
+  renderTplBar();
+});
+function tplFromDraft(m, d){
+  const g = gridOf(m), dx = d.ex - d.x, dy = d.ey - d.y;
+  const len = Math.max(5, Math.round(Math.hypot(dx, dy) / g) * 5);
+  const step = Math.PI / 12;   // 15°
+  const angle = Math.round(Math.atan2(dy, dx) / step) * step;
+  return { shape: d.shape, x: d.x, y: d.y, len, angle, dx: dx < 0 ? -1 : 1, dy: dy < 0 ? -1 : 1 };
+}
+function tplContains(t, px, py, g){
+  const L = t.len / 5 * g, eps = g * 0.02;
+  const vx = px - t.x, vy = py - t.y;
+  if (t.shape === 'circle') return Math.hypot(vx, vy) <= L + eps;
+  if (t.shape === 'cube'){
+    const x0 = Math.min(t.x, t.x + t.dx * L), x1 = Math.max(t.x, t.x + t.dx * L);
+    const y0 = Math.min(t.y, t.y + t.dy * L), y1 = Math.max(t.y, t.y + t.dy * L);
+    return px >= x0 - eps && px <= x1 + eps && py >= y0 - eps && py <= y1 + eps;
+  }
+  const ux = Math.cos(t.angle || 0), uy = Math.sin(t.angle || 0);
+  const along = vx * ux + vy * uy, perp = Math.abs(-vx * uy + vy * ux);
+  if (t.shape === 'line') return along >= -eps && along <= L + eps && perp <= g / 2 + eps;
+  const d = Math.hypot(vx, vy);
+  if (d < 1e-6 || d > L + eps || along <= 0) return false;
+  return Math.atan2(perp, along) <= CONE_HALF + 0.01;
+}
+function tplCells(t, m){
+  const g = gridOf(m), ox = m.gridOffX || 0, oy = m.gridOffY || 0, L = t.len / 5 * g;
+  const out = [];
+  const i0 = Math.floor((t.x - L - ox) / g) - 1, i1 = Math.ceil((t.x + L - ox) / g) + 1;
+  const j0 = Math.floor((t.y - L - oy) / g) - 1, j1 = Math.ceil((t.y + L - oy) / g) + 1;
+  if ((i1 - i0) * (j1 - j0) > 40000) return out;
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++){
+    const cx = ox + (i + 0.5) * g, cy = oy + (j + 0.5) * g;
+    if (tplContains(t, cx, cy, g)) out.push({ x: cx - g / 2, y: cy - g / 2 });
+  }
+  return out;
+}
+function tplOutline(t, g){
+  const L = t.len / 5 * g, a = t.angle || 0;
+  ctx.beginPath();
+  if (t.shape === 'circle') ctx.arc(t.x, t.y, L, 0, Math.PI * 2);
+  else if (t.shape === 'cube') ctx.rect(Math.min(t.x, t.x + t.dx * L), Math.min(t.y, t.y + t.dy * L), L, L);
+  else if (t.shape === 'line'){
+    const ux = Math.cos(a), uy = Math.sin(a), nx = -uy * g / 2, ny = ux * g / 2;
+    ctx.moveTo(t.x + nx, t.y + ny); ctx.lineTo(t.x + ux * L + nx, t.y + uy * L + ny); ctx.lineTo(t.x + ux * L - nx, t.y + uy * L - ny); ctx.lineTo(t.x - nx, t.y - ny); ctx.closePath();
+  } else {
+    const r = L / Math.cos(CONE_HALF);
+    ctx.moveTo(t.x, t.y); ctx.lineTo(t.x + Math.cos(a - CONE_HALF) * r, t.y + Math.sin(a - CONE_HALF) * r);
+    ctx.lineTo(t.x + Math.cos(a + CONE_HALF) * r, t.y + Math.sin(a + CONE_HALF) * r); ctx.closePath();
+  }
+}
+function drawTemplate(t, m, g, preview){
+  const rgb = hexRgb(t.color || '#c9a227');
+  ctx.save();
+  ctx.fillStyle = 'rgba(' + rgb + ',' + (preview ? 0.38 : 0.28) + ')';
+  tplCells(t, m).forEach(c => ctx.fillRect(c.x + 1, c.y + 1, g - 2, g - 2));
+  tplOutline(t, g);
+  ctx.fillStyle = 'rgba(' + rgb + ',0.10)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(' + rgb + ',0.95)'; ctx.lineWidth = 2.5 / S.cam.s;
+  if (preview) ctx.setLineDash([8 / S.cam.s, 5 / S.cam.s]);
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(' + rgb + ',1)'; ctx.beginPath(); ctx.arc(t.x, t.y, 5 / S.cam.s, 0, Math.PI * 2); ctx.fill();
+  if (!preview){
+    const lbl = t.len + ' ft' + (t.name ? ' · ' + t.name : '');
+    ctx.font = '600 ' + (12 / S.cam.s) + 'px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const w = ctx.measureText(lbl).width;
+    ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(t.x - w / 2 - 4 / S.cam.s, t.y - 24 / S.cam.s, w + 8 / S.cam.s, 16 / S.cam.s);
+    ctx.fillStyle = '#fff'; ctx.fillText(lbl, t.x, t.y - 16 / S.cam.s);
+  }
+  ctx.restore();
+}
+function drawTemplates(m, g){
+  mapTemplates(m).forEach(t => drawTemplate(t, m, g, false));
+  if (S.tplDraft && S.tplDraft.moved) drawTemplate(Object.assign(tplFromDraft(m, S.tplDraft), { color: myColor() }), m, g, true);
+}
+function tplDown(p){
+  const m = activeMap();
+  const o = gridVertex(m, p);   // las áreas nacen en una intersección de la rejilla
+  S.tplDraft = { shape: S.tplShape, x: o.x, y: o.y, ex: p.x, ey: p.y, px: p.x, py: p.y, moved: false };
+}
+function tplMove(p, sx, sy){
+  const d = S.tplDraft, m = activeMap(); if (!d || !m) return;
+  d.ex = p.x; d.ey = p.y;
+  if (!d.moved && Math.hypot(p.x - d.px, p.y - d.py) > gridOf(m) * 0.35) d.moved = true;
+  if (d.moved){
+    const t = tplFromDraft(m, d), lbl = $('#distLabel');
+    lbl.style.display = 'block'; lbl.style.left = (sx + 14) + 'px'; lbl.style.top = (sy - 26) + 'px';
+    lbl.textContent = TPL_NAMES[t.shape] + ' · ' + t.len + ' ft';
+  }
+  needsDraw();
+}
+async function tplUp(ok){
+  const d = S.tplDraft, m = activeMap(); S.tplDraft = null;
+  $('#distLabel').style.display = 'none';
+  if (!d || !m || !ok){ needsDraw(); return; }
+  const g = gridOf(m);
+  if (!d.moved){
+    const hit = mapTemplates(m).filter(canEditTpl).reverse().find(t => tplContains(t, d.px, d.py, g));
+    if (hit){ DB.doc('templates/' + hit.id).delete().then(() => toast('Plantilla borrada')).catch(err => toast(err.message, true)); }
+    else toast('Arrastra desde el origen para crear la plantilla');
+    needsDraw(); return;
+  }
+  const t = Object.assign(tplFromDraft(m, d), { gameId: S.gameId, mapId: m.id, uid: S.uid, name: myName(), color: myColor(), ts: Date.now() });
+  needsDraw();
+  try { await DB.doc('templates/' + uuid()).set(t); }
+  catch(err){ toast('No se pudo crear la plantilla: ' + (err.message || err), true); }
+}
+
+/* ============ música y ambiente sincronizados ============ */
+const AUD = { els: {}, blocked: false, vol: lsGet('vtt_vol') == null ? 0.8 : clamp(+lsGet('vtt_vol') || 0, 0, 1), muted: !!lsGet('vtt_mute'), upKind: 'music' };
+function audioState(){ const a = (gameDoc() || {}).audio || {}; return { tracks: a.tracks || [], play: a.play || {} }; }
+function audioOn(){ return !!S.gameId && !S.projector; }
+function syncAudio(){
+  const st = audioState(), play = audioOn() ? st.play : {};
+  const tracks = {}; st.tracks.forEach(t => { tracks[t.id] = t; });
+  Object.keys(AUD.els).forEach(id => {
+    if (!play[id] || !tracks[id]){ const a = AUD.els[id]; a.pause(); a.removeAttribute('src'); a.load(); delete AUD.els[id]; }
+  });
+  Object.keys(play).forEach(id => {
+    const tr = tracks[id], pl = play[id]; if (!tr) return;
+    let a = AUD.els[id];
+    if (!a){
+      a = new Audio(); a.preload = 'auto'; a.loop = tr.loop !== false; a.src = tr.url; a._at = null;
+      a.addEventListener('loadedmetadata', () => seekAudio(a));
+      a.addEventListener('error', () => toast('No se pudo cargar «' + tr.name + '»', true));
+      AUD.els[id] = a;
+    }
+    a.volume = AUD.muted ? 0 : clamp((pl.vol == null ? tr.vol : pl.vol) * AUD.vol, 0, 1);
+    if (a._at !== pl.at){ a._at = pl.at; a._done = false; seekAudio(a); }
+    if (a.paused && !a._done) a.play().then(() => setAudioBlocked(false)).catch(e => { if (e && e.name === 'NotAllowedError') setAudioBlocked(true); });
+  });
+  updateAudioBtn();
+  if (S.tab === 'audio' && !document.activeElement?.closest?.('#panel')) renderPanel();
+}
+function seekAudio(a){
+  if (!a._at || !Number.isFinite(a.duration) || !a.duration) return;
+  let t = Math.max(0, (Date.now() - a._at) / 1000);
+  if (a.loop) t = t % a.duration;
+  else if (t >= a.duration){ a._done = true; a.pause(); return; }
+  if (Math.abs(a.currentTime - t) > 1.5){ try { a.currentTime = t; } catch(e){} }
+}
+function setAudioBlocked(b){
+  if (AUD.blocked === b) return;
+  AUD.blocked = b; updateAudioBtn();
+  if (b) toast('🔈 Toca «Activar sonido» para oír la música de la partida');
+}
+function updateAudioBtn(){
+  const btn = $('#btnAudio'), playing = audioOn() && Object.keys(audioState().play).length > 0;
+  btn.style.display = playing ? '' : 'none';
+  btn.classList.toggle('blocked', AUD.blocked);
+  btn.textContent = AUD.blocked ? '🔈 Activar sonido' : (AUD.muted ? '🔇' : '🔊');
+  btn.title = AUD.blocked ? 'El navegador necesita un toque para reproducir sonido' : (AUD.muted ? 'Activar el sonido' : 'Silenciar (solo en este dispositivo)');
+}
+function unlockAudio(){ Object.values(AUD.els).forEach(a => { if (!a._done) a.play().then(() => setAudioBlocked(false)).catch(() => {}); }); setAudioBlocked(false); syncAudio(); }
+$('#btnAudio').onclick = () => {
+  if (AUD.blocked){ unlockAudio(); return; }
+  AUD.muted = !AUD.muted; lsSet('vtt_mute', AUD.muted ? 1 : null); syncAudio();
+};
+// Primer toque en cualquier sitio: desbloquea el audio si estaba bloqueado
+document.addEventListener('pointerdown', () => { if (AUD.blocked) unlockAudio(); }, true);
+function saveAudio(tracks, play){ saveGame({ audio: { tracks, play } }); }
+function audioPlay(id){
+  const st = audioState(), tr = st.tracks.find(t => t.id === id); if (!tr) return;
+  const play = Object.assign({}, st.play);
+  if (tr.kind === 'music') st.tracks.forEach(t => { if (t.kind === 'music') delete play[t.id]; });   // una sola música a la vez
+  play[id] = { at: Date.now(), vol: tr.vol };
+  saveAudio(st.tracks, play);
+}
+function audioStop(id){ const st = audioState(), play = Object.assign({}, st.play); delete play[id]; saveAudio(st.tracks, play); }
+function renderAudioPanel(p){
+  const st = audioState(), playing = st.play;
+  const nowNames = st.tracks.filter(t => playing[t.id]).map(t => (t.kind === 'amb' ? '🌲 ' : '🎵 ') + t.name);
+  let html = '<div class="section-title">Tu volumen (solo en este dispositivo)</div><div class="card">' +
+    '<div class="row between"><label>' + (AUD.muted ? '🔇 Silenciado' : '🔊 Volumen') + '</label><span class="row"><input type="range" id="audVol" min="0" max="100" value="' + Math.round(AUD.vol * 100) + '" style="width:130px"><button class="small" id="audMute">' + (AUD.muted ? 'Activar' : 'Silenciar') + '</button></span></div>' +
+    '<div class="mini" style="margin-top:6px">' + (nowNames.length ? 'Ahora suena: ' + nowNames.map(esc).join(' · ') : 'Ahora no suena nada.') + '</div>' +
+    (AUD.blocked ? '<button class="primary" id="audUnlock" style="width:100%; margin-top:8px">🔈 Activar sonido</button>' : '') + '</div>';
+  if (!S.isDM){ p.innerHTML = html + '<div class="muted">El DM elige la música y el ambiente; la oyes en tu dispositivo a la vez que el resto del grupo.</div>'; bindAudioCommon(); return; }
+  html += '<div class="section-title">Añadir pistas</div><div class="card">' +
+    '<div class="row"><select id="audKind"><option value="music"' + (AUD.upKind === 'music' ? ' selected' : '') + '>🎵 Música (una a la vez)</option><option value="amb"' + (AUD.upKind === 'amb' ? ' selected' : '') + '>🌲 Ambiente (se pueden mezclar)</option></select>' +
+    '<button class="primary grow" id="audAdd">📤 Subir audio</button></div>' +
+    '<div class="mini" style="margin-top:6px">MP3, OGG, WAV o M4A, hasta 50 MB. Suenan en bucle y todos los oyen sincronizados.</div>' +
+    '<input type="file" id="audFile" accept="audio/*,.mp3,.ogg,.wav,.m4a" multiple style="display:none"><div class="mini" id="audProg"></div></div>';
+  [['music', '🎵 Música'], ['amb', '🌲 Ambiente']].forEach(([k, lbl]) => {
+    const list = st.tracks.filter(t => t.kind === k);
+    html += '<div class="section-title">' + lbl + ' (' + list.length + ')</div>';
+    if (!list.length) html += '<div class="muted" style="margin-bottom:8px">' + (k === 'music' ? 'Sin música todavía.' : 'Sin sonidos de ambiente (lluvia, taberna, cueva…).') + '</div>';
+    list.forEach(t => {
+      const on = !!playing[t.id];
+      html += '<div class="trk' + (on ? ' on' : '') + '"><button class="small aud-toggle" data-id="' + esc(t.id) + '">' + (on ? '⏸' : '▶') + '</button>' +
+        '<span class="nm" title="' + esc(t.name) + '">' + esc(t.name) + '</span>' +
+        '<input type="range" class="aud-vol" data-id="' + esc(t.id) + '" min="0" max="100" value="' + Math.round((t.vol == null ? 0.7 : t.vol) * 100) + '" title="Volumen para todos">' +
+        '<button class="small aud-del" data-id="' + esc(t.id) + '" title="Quitar de la lista">🗑</button></div>';
+    });
+  });
+  if (Object.keys(playing).length) html += '<button class="danger" id="audStopAll" style="width:100%; margin-top:6px">⏹ Parar todo</button>';
+  p.innerHTML = html;
+  bindAudioCommon();
+  $('#audKind').onchange = e => { AUD.upKind = e.target.value; };
+  $('#audAdd').onclick = () => $('#audFile').click();
+  $('#audFile').onchange = async e => {
+    const files = [...e.target.files]; e.target.value = '';
+    if (!files.length) return;
+    const kind = $('#audKind').value, added = [];
+    for (const f of files){
+      if (!/^audio\//.test(f.type) && !/\.(mp3|ogg|wav|m4a)$/i.test(f.name)){ toast('«' + f.name + '» no es un audio', true); continue; }
+      if (f.size > 50 * 1048576){ toast('«' + f.name + '» pesa más de 50 MB', true); continue; }
+      const prog = $('#audProg'); if (prog) prog.textContent = 'Subiendo «' + f.name + '»…';
+      try {
+        const blob = f.type ? f : new Blob([f], { type: 'audio/mpeg' });
+        const url = S.localMode ? URL.createObjectURL(blob) : (await uploadAsset(blob)).url;
+        added.push({ id: uuid(), name: f.name.replace(/\.[^.]+$/, '').slice(0, 80), url, kind, vol: 0.7, loop: true });
+      } catch(err){ toast('No se pudo subir «' + f.name + '»: ' + (err.message || err), true); }
+    }
+    if (added.length){ const st2 = audioState(); saveAudio(st2.tracks.concat(added), st2.play); toast(added.length + ' pista(s) añadidas'); }
+    const prog = $('#audProg'); if (prog) prog.textContent = '';
+  };
+  $$('.aud-toggle').forEach(b => b.onclick = () => { if (audioState().play[b.dataset.id]) audioStop(b.dataset.id); else audioPlay(b.dataset.id); });
+  $$('.aud-vol').forEach(r => r.onchange = () => {
+    const st2 = audioState(), v = clamp((parseInt(r.value) || 0) / 100, 0, 1);
+    const tracks = st2.tracks.map(t => t.id === r.dataset.id ? Object.assign({}, t, { vol: v }) : t);
+    const play = Object.assign({}, st2.play); if (play[r.dataset.id]) play[r.dataset.id] = Object.assign({}, play[r.dataset.id], { vol: v });
+    saveAudio(tracks, play);
+  });
+  $$('.aud-del').forEach(b => b.onclick = () => armConfirm(b, () => {
+    const st2 = audioState(), play = Object.assign({}, st2.play); delete play[b.dataset.id];
+    saveAudio(st2.tracks.filter(t => t.id !== b.dataset.id), play);
+  }));
+  const sa = $('#audStopAll'); if (sa) sa.onclick = () => saveAudio(audioState().tracks, {});
+}
+function bindAudioCommon(){
+  $('#audVol').oninput = e => { AUD.vol = clamp((parseInt(e.target.value) || 0) / 100, 0, 1); lsSet('vtt_vol', AUD.vol); syncAudioVolumes(); };
+  $('#audMute').onclick = () => { AUD.muted = !AUD.muted; lsSet('vtt_mute', AUD.muted ? 1 : null); syncAudio(); renderPanel(); };
+  const u = $('#audUnlock'); if (u) u.onclick = () => { unlockAudio(); renderPanel(); };
+}
+function syncAudioVolumes(){
+  const st = audioState(); const tracks = {}; st.tracks.forEach(t => { tracks[t.id] = t; });
+  Object.entries(AUD.els).forEach(([id, a]) => {
+    const tr = tracks[id], pl = st.play[id]; if (!tr || !pl) return;
+    a.volume = AUD.muted ? 0 : clamp((pl.vol == null ? tr.vol : pl.vol) * AUD.vol, 0, 1);
+  });
+}
+// cada 30 s, corrige la deriva respecto al resto del grupo
+setInterval(() => Object.values(AUD.els).forEach(a => { if (!a.paused) seekAudio(a); }), 30000);
 
 /* ============ inicial ============ */
 resizeCanvas();
