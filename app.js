@@ -904,6 +904,7 @@ let drawPending = false;
 function needsDraw(){ if (!drawPending){ drawPending = true; requestAnimationFrame(() => { drawPending = false; draw(); }); } }
 function resizeCanvas(){
   const r = cv.getBoundingClientRect();
+  if (!r.width || !r.height) return;   // mapa oculto (móvil): se redimensiona al volver a mostrarlo
   const dpr = window.devicePixelRatio || 1;
   cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
   needsDraw();
@@ -1440,6 +1441,16 @@ $('#btnMapSize').onclick = () => {
   setTimeout(resizeCanvas, 220);
 };
 try { new ResizeObserver(() => resizeCanvas()).observe($('#stage')); } catch(e){}
+/* Móvil: ocultar el mapa para que el panel ocupe toda la pantalla (se recuerda en este dispositivo) */
+function mapHidden(){ return document.body.classList.contains('map-hidden'); }
+function setMapHidden(h){
+  document.body.classList.toggle('map-hidden', !!h);
+  lsSet('vtt_map_hidden', h ? 1 : null);
+  $('#btnHideMap').textContent = h ? '🗺 Ver mapa' : '🗺 Ocultar mapa';
+  if (!h) resizeCanvas();
+}
+$('#btnHideMap').onclick = () => setMapHidden(!mapHidden());
+setMapHidden(!!lsGet('vtt_map_hidden'));
 
 /* ============ rondas libres, ficha de PJ, inventario, QR ============ */
 async function rpc(name, args){
@@ -1696,10 +1707,13 @@ function renderPjPanel(p){
   p.innerHTML = html;
   bindTokenPanel();
   // Acciones
+  // Para mover hay que tocar el mapa: si estaba oculto, se vuelve a mostrar
+  if (S.phone && mapHidden() && moveState()){ setMapHidden(false); toast('🗺 Mapa visible: toca una casilla iluminada para moverte'); }
   const am = $('#actMove'); if (am) am.onclick = async () => {
     am.disabled = true;
     try {
       const r = await rpc('round_move_roll', { tid: mine.id });
+      if (mapHidden()) setMapHidden(false);
       toast('🎲 ¡Has sacado ' + r + '! Toca una casilla iluminada para moverte.');
       const rc = cv.getBoundingClientRect(); S.cam.x = rc.width / 2 - mine.x * S.cam.s; S.cam.y = rc.height / 2 - mine.y * S.cam.s; needsDraw();
     } catch(e){ toast(e.message, true); am.disabled = false; }
@@ -2019,7 +2033,8 @@ function tourSteps(){
     { sel: '#btnViewAs', t: 'Ver como jugador', d: 'Comprueba lo que ven los jugadores, niebla incluida.' },
     { sel: '#btnProjector', t: 'Proyector', d: 'Abre una segunda ventana con la vista de jugador para la tele o el proyector.' },
     { sel: '#sidebarToggle', t: 'Más espacio', d: 'Oculta el panel lateral para ver el mapa más grande.' },
-    { sel: '#btnMapSize', t: 'Tamaño del mapa', d: 'En pantallas pequeñas, alterna entre mapa grande, normal o pequeño.' }
+    { sel: '#btnMapSize', t: 'Tamaño del mapa', d: 'En pantallas pequeñas, alterna entre mapa grande, normal o pequeño.' },
+    { sel: '#btnHideMap', t: 'Ocultar el mapa', d: 'En el móvil, quita el mapa para tener todo el panel a pantalla completa.' }
   ]);
   return common0.concat([
     { sel: '#tabPjBtn', t: 'Tu personaje', d: 'Aquí está tu ficha. Si aún no tienes, pulsa «Este es mi personaje» en el que te haya preparado el DM.', pre: tab('pj') },
@@ -2028,6 +2043,7 @@ function tourSteps(){
     { sel: '.inv-grid', t: 'Inventario', d: 'Toca un objeto para verlo. Las pociones se beben con «Beber»; armaduras y armas se ponen con «Equipar» y quedan guardadas.' },
     { sel: '#stage', t: 'El mapa', d: 'Solo ves lo que ve tu personaje. Pellizca para hacer zoom y arrastra para moverte por el mapa.' },
     { sel: '#btnMapSize', t: 'Tamaño del mapa', d: 'En el móvil, alterna entre mapa grande, normal o pequeño.' },
+    { sel: '#btnHideMap', t: 'Ocultar el mapa', d: 'En el móvil, quita el mapa para ver la ficha y los botones a pantalla completa. Vuelve a pulsarlo para verlo; al moverte se muestra solo.' },
     { sel: '#tabs button[data-tab="dice"]', t: 'Dados y chat', d: 'Tira cualquier dado y escribe mensajes al grupo.' }
   ]);
 }

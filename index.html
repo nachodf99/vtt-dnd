@@ -153,7 +153,7 @@ select.cond-add{padding:2px 2px; font-size:11px; width:52px}
 body.projector header, body.projector #sidebar, body.projector #stageTools, body.projector #banner,
 #btnSpawn.on{background:var(--accent); color:#1a1208}
 #spawnHint{display:none; position:absolute; left:50%; top:12px; transform:translateX(-50%); z-index:30; background:rgba(20,16,14,.94); border:1px solid var(--accent); border-radius:10px; padding:8px 14px; font-size:13px}
-body.projector #sidebarToggle, body.projector #btnMapSize, body.projector #tourAsk, body.projector #pickHint, body.projector #lobby, body.projector #distLabel, body.projector #emptyImportBtn{display:none !important}
+body.projector #sidebarToggle, body.projector #btnMapSize, body.projector #btnHideMap, body.projector #tourAsk, body.projector #pickHint, body.projector #lobby, body.projector #distLabel, body.projector #emptyImportBtn{display:none !important}
 body.projector #stage, body.projector #cv{background:#000}
 #projFs{display:none; position:fixed; right:14px; bottom:14px; z-index:50; padding:10px 14px; background:rgba(30,24,19,.9); transition:opacity .4s}
 body.projector #projFs{display:block}
@@ -267,6 +267,12 @@ body.phone .modal{max-width:none; border-radius:16px 16px 0 0; max-height:94dvh;
 body.phone #toasts{bottom:auto; top:58px}
 body.phone #qrBox img{width:110px; height:110px}
 body.phone .act-grid button{padding:16px 4px}
+/* Móvil: botón para ocultar el mapa y dar toda la pantalla al panel */
+#btnHideMap{display:none; white-space:nowrap; flex-shrink:0}
+body.phone #btnHideMap{display:inline-block}
+body.phone.map-hidden #btnHideMap{border-color:var(--accent); color:var(--accent)}
+body.phone.map-hidden #stage{display:none}
+body.phone.map-hidden #sidebar{border-top:none}
 /* Móvil en horizontal: mapa y panel lado a lado */
 @media(max-height:520px) and (orientation:landscape){
   body.phone main{flex-direction:row}
@@ -274,6 +280,7 @@ body.phone .act-grid button{padding:16px 4px}
   body.phone #sidebar{width:46%; min-width:300px; max-width:420px; flex:none; border-top:none; border-left:2px solid var(--line)}
   body.phone #btnMapSize{display:none}
   body.phone header{padding:4px 8px}
+  body.phone.map-hidden #sidebar{width:100%; max-width:none; flex:1; border-left:none}
 }
 /* ===== Ayuda y tutorial ===== */
 .help-tabs{display:flex; gap:4px; overflow-x:auto; margin:-4px 0 12px; scrollbar-width:none}
@@ -342,6 +349,7 @@ body.phone .act-grid button{padding:16px 4px}
   <div id="banner"></div>
   <header>
     <div class="logo">⚔ MESA <span>DE ROL</span></div>
+    <button id="btnHideMap" class="small" title="Ocultar el mapa para tener más espacio para el panel">🗺 Ocultar mapa</button>
     <span class="badge" id="roleBadge" style="display:none">…</span>
     <span class="badge env" id="envBadge" style="display:none">PRE</span>
     <span class="badge game" id="gameBadge" style="display:none"></span>
