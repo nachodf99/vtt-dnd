@@ -130,3 +130,9 @@ config.local.example.js    ← plantilla para desarrollo local
 ```
 
 _Rama develop → entorno de preproducción (BD vtt-dev)._
+
+## Dados 3D
+- Cada tirada (panel 🎲, ataques, movimiento, monstruos) se ve rodando en 3D sobre el mapa en la pantalla de todos, con física real (three.js + cannon-es, en `vendor/dice-libs.js`, se cargan solo con la primera tirada).
+- El resultado lo decide la tirada de siempre; la animación solo gira el dado para que muestre ese número, así el registro y la mesa siempre coinciden.
+- Cada jugador tiene su color de dados; los monstruos tiran dados negros con números rojos. Las tiradas ocultas 🤫 solo las ven quien tira y el DM. Un 20 natural sale como ¡CRÍTICO! y un 1 como PIFIA.
+- La casilla **3D** del panel de dados lo desactiva en ese dispositivo. Código en `dice3d.js`.

@@ -783,8 +783,10 @@ function startSubscriptions(){
     S.fogDirty = true; renderPanel(); needsDraw();
   });
   DB.collection('rolls').onSnapshot(snap => {
-    S.rolls = snapDocs(snap).sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 120);
+    const all = snapDocs(snap);
+    S.rolls = all.sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 120);
     if (S.tab === 'dice') renderPanel();
+    animateNewRolls(S.rolls);
   });
 }
 function syncFromGame(){
@@ -2718,12 +2720,56 @@ function renderInitPanel(p){
 }
 
 /* --- dados --- */
+/* Dados 3D (dice3d.js + three.js/cannon-es): se cargan solo cuando hacen falta */
+let dice3dMod = null;
+const dice3dSeen = new Set();
+function dice3dEnabled(){ return lsGet('vtt_dice3d') !== 0; }
+function loadDice3D(){ if (!dice3dMod) dice3dMod = import('/dice3d.js').catch(e => { console.warn('dados 3D', e); dice3dMod = null; return null; }); return dice3dMod; }
+/* Dados individuales de una tirada: campo `dice` o, en tiradas antiguas/del servidor, sacados del texto */
+function diceOfRoll(r){
+  if (Array.isArray(r.dice)) return r.dice;
+  const out = [], det = String(r.detail || ''), frm = String(r.formula || '');
+  const re = /(\d+)d(\d+) \[([\d, ]+)\]/g; let m;
+  while ((m = re.exec(det))) m[3].split(',').forEach(v => out.push({ f: +m[2], v: +v }));
+  if (out.length) return out;
+  const br = det.match(/^\[([\d, ]+)\]/);
+  if (br && (/vs CA/.test(det) || /d20/.test(frm) || /⚔/.test(frm))) return br[1].split(',').map(v => ({ f: 20, v: +v }));
+  // p. ej. «Movimiento (1d6) · Aria» con total = el dado (sin modificadores)
+  const all = frm.match(/\d*d\d+/g) || [], one = frm.match(/(?:^|[^\w])1?d(\d+)(?!\d|\s*[+-]\s*\d)/);
+  if (all.length === 1 && one && Number.isFinite(+r.total) && +r.total >= 1 && +r.total <= +one[1]) return [{ f: +one[1], v: +r.total }];
+  return [];
+}
+function animateNewRolls(list){
+  const now = Date.now();
+  for (const r of list){
+    if (dice3dSeen.has(r.id)) continue;
+    dice3dSeen.add(r.id);
+    if (r.msg != null || r.total == null || (r.gameId || null) !== (S.gameId || null)) continue;
+    if (Math.abs(now - (r.ts || 0)) > 15000) continue;          // solo tiradas recién hechas
+    const mine = r.uid === S.uid;
+    if (r.priv && !mine && !S.isDM) continue;                   // las ocultas solo las ve quien tira y el DM
+    if (!dice3dEnabled()) continue;
+    const dice = diceOfRoll(r).filter(d => [4, 6, 8, 10, 12, 20, 100].includes(+d.f));
+    if (!dice.length) continue;
+    // crítico / pifia: un único d20 (o ventaja/desventaja, donde el total es el dado elegido)
+    let nat = null;
+    if (dice.length === 1 && +dice[0].f === 20) nat = +dice[0].v;
+    else if (dice.length === 2 && dice.every(d => +d.f === 20) && /ventaja/.test(r.formula || '')) nat = +r.total;
+    const crit = nat === 20 ? 'hit' : nat === 1 ? 'miss' : null;
+    loadDice3D().then(mod => mod && mod.play({
+      dice, seed: r.id, color: r.uid === 'npc' ? 'npc' : (r.uid || r.who),
+      label: (r.who || 'Aventurero') + (mine ? ' (tú)' : '') + (r.priv ? ' 🤫' : ''),
+      total: r.total, sub: r.formula, crit, mount: $('#stage'), inset: { top: 12, right: 64, bottom: 12, left: 12 }
+    }));
+  }
+  if (dice3dSeen.size > 2000) dice3dSeen.clear();
+}
 function rollDice(n, faces){ const r = []; for (let i = 0; i < n; i++) r.push(1 + Math.floor(Math.random() * faces)); return r; }
 function parseFormula(f){
   f = (f || '').replace(/\s/g, '').toLowerCase();
   if (!f || !/^[0-9d+\-]+$/.test(f)) return null;
   const parts = f.match(/[+-]?[^+-]+/g); if (!parts) return null;
-  let total = 0; const detail = [];
+  let total = 0; const detail = [], dice = [];
   for (const part of parts){
     const sign = part.startsWith('-') ? -1 : 1;
     const body = part.replace(/^[+-]/, '');
@@ -2731,6 +2777,7 @@ function parseFormula(f){
     if (dm){
       const n = clamp(parseInt(dm[1] || '1'), 1, 100), faces = clamp(parseInt(dm[2]), 2, 1000);
       const rolls = rollDice(n, faces);
+      rolls.forEach(v => dice.push({ f: faces, v }));
       total += sign * rolls.reduce((a, b) => a + b, 0);
       detail.push((sign < 0 ? '−' : '') + n + 'd' + faces + ' [' + rolls.join(', ') + ']');
     } else if (/^\d+$/.test(body)){
@@ -2738,10 +2785,11 @@ function parseFormula(f){
       detail.push((sign < 0 ? '−' : '+') + body);
     } else return null;
   }
-  return { total, detail: detail.join('  ') };
+  return { total, detail: detail.join('  '), dice };
 }
 function publishRoll(formula, res, priv){
   const doc = { ts: Date.now(), uid: S.uid, who: myName(), gameId: S.gameId, formula, total: res.total, detail: res.detail, priv: !!priv };
+  if (res.dice && res.dice.length) doc.dice = res.dice.slice(0, 40);
   DB.doc('rolls/' + uuid()).set(doc).catch(e => toast('No se pudo publicar la tirada: ' + (e.message || e), true));
 }
 function renderDicePanel(p){
@@ -2749,7 +2797,8 @@ function renderDicePanel(p){
     ['d4','d6','d8','d10','d12','d20','d100'].map(d => '<button class="qd" data-d="' + d + '">' + d + '</button>').join('') +
     '<button id="d20adv" title="2d20, se queda el mayor">VENT</button></div>' +
     '<div class="row"><button id="d20dis" class="small" style="flex:1" title="2d20, se queda el menor">d20 desventaja</button>' +
-    '<label class="row" style="gap:4px"><input type="checkbox" id="rollPriv" style="width:auto"> oculta</label></div>' +
+    '<label class="row" style="gap:4px"><input type="checkbox" id="rollPriv" style="width:auto"> oculta</label>' +
+    '<label class="row" style="gap:4px" title="Ver los dados rodar en 3D sobre el mapa"><input type="checkbox" id="dice3dOn" style="width:auto"' + (dice3dEnabled() ? ' checked' : '') + '> 3D</label></div>' +
     '<div class="row" style="margin-top:8px"><input id="formula" class="grow" placeholder="2d6+3, 1d8+1d6+2…"><button class="primary" id="btnRoll">Tirar</button></div>' +
     '<div class="row" style="margin-top:8px"><input id="chatMsg" class="grow" placeholder="Mensaje al grupo…"><button id="btnMsg">💬</button></div>' +
     '<div class="section-title">Registro</div><div id="log">';
@@ -2776,12 +2825,13 @@ function renderDicePanel(p){
   $('#formula').addEventListener('keydown', e => { if (e.key === 'Enter') doRoll($('#formula').value); });
   $('#d20adv').onclick = () => {
     const r = rollDice(2, 20); const best = Math.max(r[0], r[1]);
-    publishRoll('d20 ventaja', { total: best, detail: '[' + r.join(', ') + '] → mayor' }, $('#rollPriv').checked);
+    publishRoll('d20 ventaja', { total: best, detail: '[' + r.join(', ') + '] → mayor', dice: r.map(v => ({ f: 20, v })) }, $('#rollPriv').checked);
   };
   $('#d20dis').onclick = () => {
     const r = rollDice(2, 20); const worst = Math.min(r[0], r[1]);
-    publishRoll('d20 desventaja', { total: worst, detail: '[' + r.join(', ') + '] → menor' }, $('#rollPriv').checked);
+    publishRoll('d20 desventaja', { total: worst, detail: '[' + r.join(', ') + '] → menor', dice: r.map(v => ({ f: 20, v })) }, $('#rollPriv').checked);
   };
+  $('#dice3dOn').onchange = e => { lsSet('vtt_dice3d', e.target.checked ? 1 : 0); if (e.target.checked) loadDice3D(); };
   $('#btnMsg').onclick = sendMsg;
   $('#chatMsg').addEventListener('keydown', e => { if (e.key === 'Enter') sendMsg(); });
   function sendMsg(){
